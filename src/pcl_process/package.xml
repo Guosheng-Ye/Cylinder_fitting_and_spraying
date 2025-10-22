@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>pcl_process</name>
+  <version>0.0.1</version>
+  <description>ROS1 package for PCL point cloud processing, cylinder fitting, and visualization.</description>
+
+  <!-- 作者与维护信息 -->
+  <maintainer email="ye@example.com">Your Name</maintainer>
+  <author email="ye@example.com">Your Name</author>
+  <license>MIT</license>
+
+  <!-- 构建系统依赖 -->
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- 构建依赖 -->
+  <build_depend>roscpp</build_depend>
+  <build_depend>pcl_ros</build_depend>
+  <build_depend>pcl_conversions</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>std_msgs</build_depend>
+
+  <!-- 运行依赖（安装后运行所需） -->
+  <exec_depend>roscpp</exec_depend>
+  <exec_depend>pcl_ros</exec_depend>
+  <exec_depend>pcl_conversions</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <!-- 系统级依赖（PCL库） -->
+  <depend>libpcl-all-dev</depend>
+
+  <export>
+    <build_type>catkin</build_type>
+  </export>
+</package>
