@@ -6,11 +6,17 @@ CylinderFitter::CylinderFitter(const std::string &pcd_path)
     viewer_->setBackgroundColor(0, 0, 0);
     viewer_->addCoordinateSystem(1.0);
     viewer_->initCameraParameters();
-}
 
+    //
+    viewer_thread_ = std::thread(&CylinderFitter::viewerThread, this);
+}
+CylinderFitter::~CylinderFitter() {
+    running_ = false;
+    if (viewer_thread_.joinable()) viewer_thread_.join();
+}
 /// @brief
 /// @return
-int CylinderFitter::run() {
+int CylinderFitter::run_with_pcd() {
     if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_path_, *cloud_) == -1) {
         PCL_ERROR("Couldn't read file %s\n", pcd_path_.c_str());
         return -1;
@@ -51,6 +57,38 @@ int CylinderFitter::run() {
 
     // 可视化
     visualizeResults(cloud_, cylinder_cloud, center, axis, radius);
+
+    /// 打印数值结果
+    printResults(center, axis, radius, cylinder_cloud);
+    return 0;
+}
+
+/// @brief
+/// @param cloud_input
+/// @return
+int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_input) {
+    if (!cloud_input || cloud_input->empty()) {
+        std::cerr << "[ERROR] Empty point cloud input.\n";
+        return -1;
+    }
+
+    cloud_ = cloud_input;
+
+    // 法线估计
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+    estimateNormals(cloud_, normals);
+
+    // 圆柱拟合
+    Eigen::Vector3f                     axis, center;
+    double                              radius = 0.0;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    fitCylinderPCL(cloud_, normals, axis, center, radius, cylinder_cloud);
+
+    // 可视化
+    visualizeResults(cloud_, cylinder_cloud, center, axis, radius);
+
+    // 打印结果
+    printResults(center, axis, radius, cylinder_cloud);
 
     return 0;
 }
@@ -149,9 +187,11 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 void CylinderFitter::visualizeResults(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                                       pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points,
                                       const Eigen::Vector3f &center, const Eigen::Vector3f &axis, double radius) {
+
+    std::lock_guard<std::mutex> lock(viewer_mutex_);
+
     viewer_->removeAllPointClouds();
     viewer_->removeAllShapes();
-
     // 白色原始点云
     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> white(cloud, 255, 255, 255);
     viewer_->addPointCloud<pcl::PointXYZ>(cloud, white, "cloud");
@@ -203,12 +243,97 @@ void CylinderFitter::visualizeResults(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     viewer_->addArrow(pcl::PointXYZ(end.x(), end.y(), end.z()), pcl::PointXYZ(start.x(), start.y(), start.z()), 1.0,
                       0.0, 0.0, false, "cylinder_axis");
 
-    while (!viewer_->wasStopped()) {
-        viewer_->spinOnce(10);
+    // ---------- 源点到圆柱中点连线 ----------
+    Eigen::Vector3f source_point(0, 0, 0); // 假设原点为传感器位置
+    Eigen::Vector3f cylinder_mid = center + 0.5 * (min_proj + max_proj) * axis_norm;
+    viewer_->addLine(pcl::PointXYZ(source_point.x(), source_point.y(), source_point.z()),
+                     pcl::PointXYZ(cylinder_mid.x(), cylinder_mid.y(), cylinder_mid.z()), 0.0, 0.0, 1.0,
+                     "source_to_cylinder_mid"); // 蓝色
+
+    // ---------- 计算距离 ----------
+    double dist_3d = (cylinder_mid - source_point).norm() * 1000.0;           // m -> mm
+    double dist_xy = (cylinder_mid - source_point).head<2>().norm() * 1000.0; // m -> mm
+    std::cout << "[Distance] 3D: " << dist_3d << " mm, Horizontal XY: " << dist_xy << " mm\n";
+
+    // while (!viewer_->wasStopped()) {
+    //     viewer_->spinOnce(10);
+    //     std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // }
+}
+/// @brief
+/// @param center
+/// @param axis
+/// @param radius
+/// @param cylinder_points
+void CylinderFitter::printResults(const Eigen::Vector3f &center, const Eigen::Vector3f &axis, double radius,
+                                  pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points) {
+    if (!cylinder_points || cylinder_points->empty()) {
+        std::cerr << "[WARN] No cylinder points for result computation.\n";
+        return;
+    }
+
+    Eigen::Vector3f axis_norm = axis.normalized();
+
+    // 高度（单位 mm）
+    double min_proj = std::numeric_limits<double>::max();
+    double max_proj = std::numeric_limits<double>::lowest();
+    for (const auto &p : cylinder_points->points) {
+        Eigen::Vector3f pt(p.x, p.y, p.z);
+        double          proj = axis_norm.dot(pt - center);
+        min_proj             = std::min(min_proj, proj);
+        max_proj             = std::max(max_proj, proj);
+    }
+    double height = (max_proj - min_proj) * 1000.0; // m -> mm
+
+    // 圆弧角度
+    Eigen::Vector3f x         = axis_norm.unitOrthogonal();
+    Eigen::Vector3f y         = axis_norm.cross(x);
+    double          min_theta = std::numeric_limits<double>::max();
+    double          max_theta = std::numeric_limits<double>::lowest();
+    for (const auto &p : cylinder_points->points) {
+        Eigen::Vector3f v      = Eigen::Vector3f(p.x, p.y, p.z) - center;
+        Eigen::Vector3f v_proj = v - v.dot(axis_norm) * axis_norm;
+        double          theta  = std::atan2(v_proj.dot(y), v_proj.dot(x));
+        min_theta              = std::min(min_theta, theta);
+        max_theta              = std::max(max_theta, theta);
+    }
+    double angle     = std::abs(max_theta - min_theta);
+    double angle_deg = angle * 180.0 / M_PI;
+
+    // 喷涂区域中心（单位 mm）
+    double          theta_mid = 0.5 * (min_theta + max_theta);
+    Eigen::Vector3f spray_center =
+        center + radius * (std::cos(theta_mid) * x + std::sin(theta_mid) * y) + axis_norm * 0.5 * (min_proj + max_proj);
+
+    // 转换为 mm
+    Eigen::Vector3f center_mm       = center * 1000.0;
+    Eigen::Vector3f spray_center_mm = spray_center * 1000.0;
+    Eigen::Vector3f axis_dir_mm     = axis_norm * 1000.0; // 如果需要用长度表示
+
+    double radius_mm = radius * 1000.0;
+
+    // 输出结果
+    std::cout << "\n=========== Cylinder Fitting Results (all linear units in mm) ===========" << std::endl;
+    std::cout << "circle_center: [" << center_mm.x() << ", " << center_mm.y() << ", " << center_mm.z() << "]"
+              << std::endl;
+    std::cout << "spray_center:  [" << spray_center_mm.x() << ", " << spray_center_mm.y() << ", " << spray_center_mm.z()
+              << "]" << std::endl;
+    std::cout << "cylinder_axis_direction: [" << axis_dir_mm.x() << ", " << axis_dir_mm.y() << ", " << axis_dir_mm.z()
+              << "]" << std::endl;
+    std::cout << "radius: " << radius_mm << " mm" << std::endl;
+    std::cout << "angle: " << angle_deg << " deg" << std::endl;
+    std::cout << "height: " << height << " mm" << std::endl;
+    std::cout << "======================================================================" << std::endl;
+}
+void CylinderFitter::viewerThread() {
+    while (running_) {
+        {
+            std::lock_guard<std::mutex> lock(viewer_mutex_);
+            viewer_->spinOnce(30);
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
-
 // ============================= 移除水平地面和平面 =============================
 // void removePlanes(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, double dist_thresh, int max_planes,
 //                   double horizontal_angle_thresh) // 单位弧度

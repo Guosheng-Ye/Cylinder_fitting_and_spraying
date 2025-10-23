@@ -19,7 +19,11 @@
 class CylinderFitter {
 public:
     CylinderFitter(const std::string &pcd_path);
-    int run();
+    ~CylinderFitter();
+
+public:
+    int run_with_pcd();
+    int run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_input);
 
 private:
     /// @brief 法线修复
@@ -39,19 +43,35 @@ private:
                         pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points);
 
     /// @brief 可视化
-    /// @param cloud
-    /// @param cylinder_points
-    /// @param center
-    /// @param axis
-    /// @param radius
+    /// @param cloud 点云
+    /// @param cylinder_points 圆柱内点
+    /// @param center 中心
+    /// @param axis 轴向
+    /// @param radius 半径
     void visualizeResults(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                           pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points, const Eigen::Vector3f &center,
                           const Eigen::Vector3f &axis, double radius);
+
+    /// @brief
+    /// @param center 圆柱中线
+    /// @param axis 圆柱轴向
+    /// @param radius 圆柱半径
+    /// @param cylinder_points
+    void printResults(const Eigen::Vector3f &center, const Eigen::Vector3f &axis, double radius,
+                      pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points);
+
+    /// @brief 
+    void viewerThread();
 
 private:
     std::string                            pcd_path_;
     pcl::visualization::PCLVisualizer::Ptr viewer_;                                      //可视化器
     pcl::PointCloud<pcl::PointXYZ>::Ptr    cloud_{new pcl::PointCloud<pcl::PointXYZ>()}; // 点云数据
+
+    // 非阻塞绘制
+    std::thread       viewer_thread_;
+    std::atomic<bool> running_{true};
+    std::mutex        viewer_mutex_;
 };
 
 #endif
