@@ -45,6 +45,7 @@ int CylinderFitter::run_with_pcd() {
     //     return -1;
     // }
 
+    std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
     // 法线估计
     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
     estimateNormals(cloud_, normals);
@@ -55,11 +56,42 @@ int CylinderFitter::run_with_pcd() {
     pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     fitCylinderPCL(cloud_, normals, axis, center, radius, cylinder_cloud);
 
+    std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> time_span  = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);
+    std::cout << "Cylinder fitting time: " << time_span.count() << " seconds.\n";
+
     // 可视化
     visualizeResults(cloud_, cylinder_cloud, center, axis, radius);
 
     /// 打印数值结果
     printResults(center, axis, radius, cylinder_cloud);
+
+    // 计算圆柱高度并调用切片 =============================
+    if (cylinder_cloud && !cylinder_cloud->empty()) {
+        Eigen::Vector3f axis_norm = axis.normalized();
+        double          min_proj  = std::numeric_limits<double>::max();
+        double          max_proj  = std::numeric_limits<double>::lowest();
+
+        for (const auto &p : cylinder_cloud->points) {
+            Eigen::Vector3f pt(p.x, p.y, p.z);
+            double          proj = axis_norm.dot(pt - center);
+            min_proj             = std::min(min_proj, proj);
+            max_proj             = std::max(max_proj, proj);
+        }
+
+        double          height_m  = (max_proj - min_proj); // m
+        double          radius_mm = radius * 1000.0;
+        double          height_mm = height_m * 1000.0;
+        Eigen::Vector3f center_mm = center * 1000.0;
+
+        std::cout << "\n调用切片函数..." << std::endl;
+        sliceCylinder(center_mm, axis, radius_mm, height_mm,
+                      180.0, // 角度范围：180°
+                      500.0, // 每层高度 500 mm
+                      300.0, // 每个切片宽度 300 mm
+                      cylinder_cloud);
+    }
+
     return 0;
 }
 
@@ -168,14 +200,68 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     }
     radius = max_r; // 更新半径
 
-    center = proj_center;
-    axis   = fitted_axis;
+    center     = proj_center;
+    center.z() = 0.0; // 强制中心在 z=0 平面
+    axis       = fitted_axis;
 
-    std::cout << "Cylinder detected (optimized radius):\n"
-              << "  Center: [" << center.transpose() << "]\n"
-              << "  Axis:   [" << axis.transpose() << "]\n"
-              << "  Radius: " << radius << "\n"
-              << "  Inliers: " << inliers_cylinder->indices.size() << " points\n";
+    std::cout << "圆柱检测（优化半径）:\n"
+              << "  中心: [" << center.transpose() << "]\n"
+              << "  轴:   [" << axis.transpose() << "]\n"
+              << "  半径: " << radius << "\n"
+              << "  内点数: " << inliers_cylinder->indices.size() << " points\n";
+}
+
+/// @brief 对圆柱表面切片计算
+/// @param center 圆柱中心
+/// @param axis 圆柱轴向
+/// @param radius 圆柱半径
+/// @param height 圆柱总高度
+/// @param angle_range_deg 角度范围（°）
+/// @param slice_height 切片高
+/// @param slice_width 切片宽
+
+void CylinderFitter::sliceCylinder(const Eigen::Vector3f &center_mm, const Eigen::Vector3f &axis, double radius_mm,
+                                   double height_mm, double angle_range_deg, double slice_height_mm,
+                                   double slice_width_mm, pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points) {
+    Eigen::Vector3f z = axis.normalized();
+    Eigen::Vector3f world_x(-1.0f, 0.0f, 0.0f);
+
+    // --- 底部中心投影到XY平面 ---
+    Eigen::Vector3f bottom_center_mm = center_mm;
+    bottom_center_mm.z()             = 0.0;
+
+    // 构造局部坐标系 (x, y, z)
+    Eigen::Vector3f x;
+    if (std::abs(z.dot(world_x)) > 0.99f) {
+        x = (Eigen::Vector3f(0.0f, 0.0f, 1.0f).cross(z)).normalized();
+    } else {
+        x = (world_x - z * (z.dot(world_x))).normalized();
+    }
+    Eigen::Vector3f y = z.cross(x).normalized();
+
+    double angle_range = angle_range_deg * M_PI / 180.0;
+    double min_theta   = -angle_range / 2.0;
+
+    int num_height_slices = std::max(1, static_cast<int>(std::round(height_mm / slice_height_mm)));
+    int num_width_slices  = std::max(1, static_cast<int>(std::round((radius_mm * angle_range) / slice_width_mm)));
+
+    viewer_->removeAllShapes();
+
+    for (int i = 0; i < num_height_slices; ++i) {
+        double h_mm = (i + 0.5) * slice_height_mm;
+
+        for (int j = 0; j < num_width_slices; ++j) {
+            double theta = min_theta + (j + 0.5) * (angle_range / num_width_slices);
+
+            Eigen::Vector3f slice_center_mm =
+                bottom_center_mm - h_mm * z + radius_mm * (std::cos(theta) * x + std::sin(theta) * y);
+
+            std::string box_id = "slice_" + std::to_string(i) + "_" + std::to_string(j);
+            viewer_->addSphere(
+                pcl::PointXYZ(slice_center_mm.x() / 1000.0, slice_center_mm.y() / 1000.0, slice_center_mm.z() / 1000.0),
+                5.0 / 1000.0, 1.0, 0.5, 0.0, box_id);
+        }
+    }
 }
 
 /// @brief
@@ -203,7 +289,7 @@ void CylinderFitter::visualizeResults(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
         viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "cylinder_points");
     }
 
-    // 自动计算圆柱高度范围（内点沿轴方向投影）
+    // 计算圆柱高度范围（内点沿轴方向投影）
     double          min_proj  = std::numeric_limits<double>::max();
     double          max_proj  = std::numeric_limits<double>::lowest();
     Eigen::Vector3f axis_norm = axis.normalized();
@@ -308,21 +394,19 @@ void CylinderFitter::printResults(const Eigen::Vector3f &center, const Eigen::Ve
     // 转换为 mm
     Eigen::Vector3f center_mm       = center * 1000.0;
     Eigen::Vector3f spray_center_mm = spray_center * 1000.0;
-    Eigen::Vector3f axis_dir_mm     = axis_norm * 1000.0; // 如果需要用长度表示
+    // Eigen::Vector3f axis_dir_mm     = axis_norm * 1000.0; // 如果需要用长度表示
 
     double radius_mm = radius * 1000.0;
 
     // 输出结果
-    std::cout << "\n=========== Cylinder Fitting Results (all linear units in mm) ===========" << std::endl;
-    std::cout << "circle_center: [" << center_mm.x() << ", " << center_mm.y() << ", " << center_mm.z() << "]"
-              << std::endl;
-    std::cout << "spray_center:  [" << spray_center_mm.x() << ", " << spray_center_mm.y() << ", " << spray_center_mm.z()
+    std::cout << "\n=========== 圆柱拟合结果 ===========" << std::endl;
+    std::cout << "圆柱中心: [" << center_mm.x() << ", " << center_mm.y() << ", " << center_mm.z() << "]" << std::endl;
+    std::cout << "喷涂区域中心:  [" << spray_center_mm.x() << ", " << spray_center_mm.y() << ", " << spray_center_mm.z()
               << "]" << std::endl;
-    std::cout << "cylinder_axis_direction: [" << axis_dir_mm.x() << ", " << axis_dir_mm.y() << ", " << axis_dir_mm.z()
-              << "]" << std::endl;
-    std::cout << "radius: " << radius_mm << " mm" << std::endl;
-    std::cout << "angle: " << angle_deg << " deg" << std::endl;
-    std::cout << "height: " << height << " mm" << std::endl;
+    std::cout << "圆柱轴方向: [" << axis_norm.x() << ", " << axis_norm.y() << ", " << axis_norm.z() << "]" << std::endl;
+    std::cout << "半径: " << radius_mm << " mm" << std::endl;
+    std::cout << "角度: " << angle_deg << " deg" << std::endl;
+    std::cout << "高度: " << height << " mm" << std::endl;
     std::cout << "======================================================================" << std::endl;
 }
 void CylinderFitter::viewerThread() {

@@ -42,6 +42,18 @@ private:
                         Eigen::Vector3f &axis, Eigen::Vector3f &center, double &radius,
                         pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points);
 
+    /// @brief 对圆柱表面切片
+    /// @param center 拟合圆柱中心
+    /// @param axis 圆柱轴线方向向量
+    /// @param radius 半径
+    /// @param height 高度
+    /// @param angle_range_deg 角度范围（度）
+    /// @param slice_height 切片高度
+    /// @param slice_width 切片宽度
+    void sliceCylinder(const Eigen::Vector3f &center_mm, const Eigen::Vector3f &axis_mm, double radius_mm,
+                       double height_mm, double angle_range_deg, double slice_height_mm, double slice_width_mm,
+                       pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points);
+
     /// @brief 可视化
     /// @param cloud 点云
     /// @param cylinder_points 圆柱内点
@@ -60,7 +72,7 @@ private:
     void printResults(const Eigen::Vector3f &center, const Eigen::Vector3f &axis, double radius,
                       pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_points);
 
-    /// @brief 
+    /// @brief
     void viewerThread();
 
 private:
