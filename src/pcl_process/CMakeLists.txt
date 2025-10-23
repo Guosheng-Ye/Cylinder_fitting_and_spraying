@@ -1,14 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 project(pcl_process)
 
-## -----------------------------------------------------------------------------
-## 编译选项
-## -----------------------------------------------------------------------------
 add_compile_options(-std=c++14)
 
-## -----------------------------------------------------------------------------
-## 查找依赖包
-## -----------------------------------------------------------------------------
 find_package(catkin REQUIRED COMPONENTS
     roscpp
     pcl_ros
@@ -16,11 +10,10 @@ find_package(catkin REQUIRED COMPONENTS
     sensor_msgs
     std_msgs
 )
-
 find_package(PCL REQUIRED)
 
 ## -----------------------------------------------------------------------------
-## catkin 包配置
+## Catkin 包配置（导出头文件与库）
 ## -----------------------------------------------------------------------------
 catkin_package(
     CATKIN_DEPENDS
@@ -33,46 +26,75 @@ catkin_package(
     PCL
     INCLUDE_DIRS
     src/cylinder_fitting
+    src/rslidar_process
     src/pcd_viewer
     LIBRARIES
-    cylinder_fitting
-    pcd_viewer
+    cylinder_fitting_node
+    rslidar_process
 )
 
-## -----------------------------------------------------------------------------
-## 头文件路径
-## -----------------------------------------------------------------------------
+
 include_directories(
     ${catkin_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cylinder_fitting
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/rslidar_process
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pcd_viewer
 )
 
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 
-## -----------------------------------------------------------------------------
-## 模块库：cylinder_fitting
-## -----------------------------------------------------------------------------
-add_library(cylinder_fitting
+
+## 圆柱拟合
+add_library(cylinder_fitting_node
     src/cylinder_fitting/cylinder_fitting_node.cpp
 )
+target_link_libraries(cylinder_fitting_node
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+)
 
-target_link_libraries(cylinder_fitting
+
+## 雷达数据过滤
+add_library(rslidar_process
+    src/rslidar_process/rslidar_process.cpp
+)
+target_include_directories(rslidar_process PRIVATE src/rslidar_process)
+target_link_libraries(rslidar_process
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+)
+
+
+# main executable
+add_executable(${PROJECT_NAME}
+    src/main.cpp
+)
+target_link_libraries(${PROJECT_NAME}
+    cylinder_fitting_node
+    rslidar_process
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+)
+
+## 雷达数据过滤节点
+add_executable(rslidar_process_node
+    src/rslidar_process/rslidar_process.cpp
+)
+target_link_libraries(rslidar_process_node
     ${catkin_LIBRARIES}
     ${PCL_LIBRARIES}
 )
 
 ## -----------------------------------------------------------------------------
-## 主程序节点
+## 圆柱拟合 ROS 节点（
 ## -----------------------------------------------------------------------------
-add_executable(${PROJECT_NAME}
-    src/main.cpp
+add_executable(cylinder_fitting_node_ros
+    src/cylinder_fitting/cylinder_fitting_ros.cpp
 )
-
-target_link_libraries(${PROJECT_NAME}
-    cylinder_fitting
+target_link_libraries(cylinder_fitting_node_ros
+    cylinder_fitting_node
     ${catkin_LIBRARIES}
     ${PCL_LIBRARIES}
 )
@@ -80,21 +102,19 @@ target_link_libraries(${PROJECT_NAME}
 ## -----------------------------------------------------------------------------
 ## PCD 查看节点
 ## -----------------------------------------------------------------------------
-add_executable(pcd_viewer_node
-    src/pcd_viewer/pcd_test.cpp
-)
-target_link_libraries(pcd_viewer_node
-    ${catkin_LIBRARIES}
-    ${PCL_LIBRARIES}
-)
+# add_executable(pcd_viewer_node
+#     src/pcd_viewer/pcd_viewer.cpp
+# )
+# target_link_libraries(pcd_viewer_node
+#     ${catkin_LIBRARIES}
+#     ${PCL_LIBRARIES}
+# )
 
-## -----------------------------------------------------------------------------
-## 安装
-## -----------------------------------------------------------------------------
+
 install(TARGETS
     ${PROJECT_NAME}
-    cylinder_fitting
-    pcd_viewer_node
+    rslidar_process_node
+    cylinder_fitting_node_ros
     RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
     LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
     ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
