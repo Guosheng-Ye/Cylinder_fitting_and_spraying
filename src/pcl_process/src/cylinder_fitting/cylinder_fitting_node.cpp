@@ -62,10 +62,14 @@ int CylinderFitter::run_with_pcd() {
     /// 打印数值结果
     printResults();
 
-    // 计算圆柱高度并调用切片 =============================
+    // 计算圆柱高度并调用切片
     if (hasModel()) {
+        std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
         std::cout << "\n调用切片函数..." << std::endl;
         sliceCylinder(180.0, 500.0, 300.0);
+        std::chrono::steady_clock::time_point t4 = std::chrono::steady_clock::now();
+        std::chrono::duration<double> slice_time = std::chrono::duration_cast<std::chrono::duration<double>>(t4 - t3);
+        std::cout << "Slice time: " << slice_time.count() << " seconds.\n";
     }
     return 0;
 }
@@ -147,7 +151,7 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     extract.setNegative(false);
     extract.filter(*cylinder_model_.inliers);
 
-    // ================== 半径优化 ==================
+    // 半径优化
     // 将内点投影到 XY 平面（垂直截面），计算最大外接圆半径
     Eigen::Vector3f fitted_axis(coefficients_cylinder->values[3], coefficients_cylinder->values[4],
                                 coefficients_cylinder->values[5]);
@@ -332,55 +336,61 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                 }
 
                 // 边框线：采样用于弧线 & 竖线
-                auto addLineSeg = [&](const Eigen::Vector3f &p0_mm, const Eigen::Vector3f &p1_mm, double r, double g,
-                                      double b, const std::string &id) {
-                    viewer_->addLine(pcl::PointXYZ(p0_mm.x() / 1000.0f, p0_mm.y() / 1000.0f, p0_mm.z() / 1000.0f),
-                                     pcl::PointXYZ(p1_mm.x() / 1000.0f, p1_mm.y() / 1000.0f, p1_mm.z() / 1000.0f), r, g,
-                                     b, id);
-                    slice_line_ids_.push_back(id);
-                };
+                if (show_slice_border_) {
+                    auto addLineSeg = [&](const Eigen::Vector3f &p0_mm, const Eigen::Vector3f &p1_mm, double r,
+                                          double g, double b, const std::string &id) {
+                        viewer_->addLine(pcl::PointXYZ(p0_mm.x() / 1000.0f, p0_mm.y() / 1000.0f, p0_mm.z() / 1000.0f),
+                                         pcl::PointXYZ(p1_mm.x() / 1000.0f, p1_mm.y() / 1000.0f, p1_mm.z() / 1000.0f),
+                                         r, g, b, id);
+                        slice_line_ids_.push_back(id);
+                    };
 
-                int arc_samples = std::max(8, theta_samples); // 底/顶弧细分
-                // 底弧
-                for (int k = 0; k < arc_samples - 1; ++k) {
-                    double          t0 = theta0 + (theta1 - theta0) * (double)k / (arc_samples - 1);
-                    double          t1 = theta0 + (theta1 - theta0) * (double)(k + 1) / (arc_samples - 1);
-                    Eigen::Vector3f p0 = bottom_center_mm + h0 * z + radius_mm * (std::cos(t0) * x + std::sin(t0) * y);
-                    Eigen::Vector3f p1 = bottom_center_mm + h0 * z + radius_mm * (std::cos(t1) * x + std::sin(t1) * y);
-                    addLineSeg(p0, p1, 1.0, 1.0, 0.0,
-                               "slice_line_bottom_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
-                                   std::to_string(k));
-                }
-                // 顶弧
-                for (int k = 0; k < arc_samples - 1; ++k) {
-                    double          t0 = theta0 + (theta1 - theta0) * (double)k / (arc_samples - 1);
-                    double          t1 = theta0 + (theta1 - theta0) * (double)(k + 1) / (arc_samples - 1);
-                    Eigen::Vector3f p0 = bottom_center_mm + h1 * z + radius_mm * (std::cos(t0) * x + std::sin(t0) * y);
-                    Eigen::Vector3f p1 = bottom_center_mm + h1 * z + radius_mm * (std::cos(t1) * x + std::sin(t1) * y);
-                    addLineSeg(p0, p1, 1.0, 1.0, 0.0,
-                               "slice_line_top_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
-                                   std::to_string(k));
-                }
-                // 竖直边(左 / 右)
-                for (int k = 0; k < height_samples - 1; ++k) {
-                    double          thL = theta0;
-                    double          thR = theta1;
-                    double          hh0 = h0 + (h1 - h0) * (double)k / (height_samples - 1);
-                    double          hh1 = h0 + (h1 - h0) * (double)(k + 1) / (height_samples - 1);
-                    Eigen::Vector3f vl0 =
-                        bottom_center_mm + hh0 * z + radius_mm * (std::cos(thL) * x + std::sin(thL) * y);
-                    Eigen::Vector3f vl1 =
-                        bottom_center_mm + hh1 * z + radius_mm * (std::cos(thL) * x + std::sin(thL) * y);
-                    Eigen::Vector3f vr0 =
-                        bottom_center_mm + hh0 * z + radius_mm * (std::cos(thR) * x + std::sin(thR) * y);
-                    Eigen::Vector3f vr1 =
-                        bottom_center_mm + hh1 * z + radius_mm * (std::cos(thR) * x + std::sin(thR) * y);
-                    addLineSeg(vl0, vl1, 0.0, 0.5, 1.0,
-                               "slice_line_left_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
-                                   std::to_string(k));
-                    addLineSeg(vr0, vr1, 0.0, 0.5, 1.0,
-                               "slice_line_right_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
-                                   std::to_string(k));
+                    int arc_samples = std::max(8, theta_samples); // 底/顶弧细分
+                    // 底弧
+                    for (int k = 0; k < arc_samples - 1; ++k) {
+                        double          t0 = theta0 + (theta1 - theta0) * (double)k / (arc_samples - 1);
+                        double          t1 = theta0 + (theta1 - theta0) * (double)(k + 1) / (arc_samples - 1);
+                        Eigen::Vector3f p0 =
+                            bottom_center_mm + h0 * z + radius_mm * (std::cos(t0) * x + std::sin(t0) * y);
+                        Eigen::Vector3f p1 =
+                            bottom_center_mm + h0 * z + radius_mm * (std::cos(t1) * x + std::sin(t1) * y);
+                        addLineSeg(p0, p1, 1.0, 1.0, 0.0,
+                                   "slice_line_bottom_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
+                                       std::to_string(k));
+                    }
+                    // 顶弧
+                    for (int k = 0; k < arc_samples - 1; ++k) {
+                        double          t0 = theta0 + (theta1 - theta0) * (double)k / (arc_samples - 1);
+                        double          t1 = theta0 + (theta1 - theta0) * (double)(k + 1) / (arc_samples - 1);
+                        Eigen::Vector3f p0 =
+                            bottom_center_mm + h1 * z + radius_mm * (std::cos(t0) * x + std::sin(t0) * y);
+                        Eigen::Vector3f p1 =
+                            bottom_center_mm + h1 * z + radius_mm * (std::cos(t1) * x + std::sin(t1) * y);
+                        addLineSeg(p0, p1, 1.0, 1.0, 0.0,
+                                   "slice_line_top_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
+                                       std::to_string(k));
+                    }
+                    // 竖直边(左 / 右)
+                    for (int k = 0; k < height_samples - 1; ++k) {
+                        double          thL = theta0;
+                        double          thR = theta1;
+                        double          hh0 = h0 + (h1 - h0) * (double)k / (height_samples - 1);
+                        double          hh1 = h0 + (h1 - h0) * (double)(k + 1) / (height_samples - 1);
+                        Eigen::Vector3f vl0 =
+                            bottom_center_mm + hh0 * z + radius_mm * (std::cos(thL) * x + std::sin(thL) * y);
+                        Eigen::Vector3f vl1 =
+                            bottom_center_mm + hh1 * z + radius_mm * (std::cos(thL) * x + std::sin(thL) * y);
+                        Eigen::Vector3f vr0 =
+                            bottom_center_mm + hh0 * z + radius_mm * (std::cos(thR) * x + std::sin(thR) * y);
+                        Eigen::Vector3f vr1 =
+                            bottom_center_mm + hh1 * z + radius_mm * (std::cos(thR) * x + std::sin(thR) * y);
+                        addLineSeg(vl0, vl1, 0.0, 0.5, 1.0,
+                                   "slice_line_left_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
+                                       std::to_string(k));
+                        addLineSeg(vr0, vr1, 0.0, 0.5, 1.0,
+                                   "slice_line_right_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
+                                       std::to_string(k));
+                    }
                 }
             }
 
@@ -393,12 +403,14 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
               << ", 显示面=" << (show_slice_surface_ ? "ON" : "OFF") << std::endl;
 
     // 打印所有切片中心
-    ROS_INFO("[Slice Centers] Total=%zu", slice_centers_mm_.size());
-    for (size_t k = 0; k < slice_centers_mm_.size(); ++k) {
-        int         i = static_cast<int>(k / num_width_slices);
-        int         j = static_cast<int>(k % num_width_slices);
-        const auto &c = slice_centers_mm_[k];
-        ROS_INFO("  Slice (%d,%d): [%.2f mm, %.2f mm, %.2f mm]", i, j, c.x(), c.y(), c.z());
+    if (print_slice_centers_) {
+        ROS_INFO("[Slice Centers] Total=%zu", slice_centers_mm_.size());
+        for (size_t k = 0; k < slice_centers_mm_.size(); ++k) {
+            int         i = static_cast<int>(k / num_width_slices);
+            int         j = static_cast<int>(k % num_width_slices);
+            const auto &c = slice_centers_mm_[k];
+            ROS_INFO("  Slice (%d,%d): [%.2f mm, %.2f mm, %.2f mm]", i, j, c.x(), c.y(), c.z());
+        }
     }
 }
 
@@ -439,8 +451,8 @@ void CylinderFitter::visualizeResults() {
 
     // 构建红色圆柱表面点云
     pcl::PointCloud<pcl::PointXYZ>::Ptr red_cylinder(new pcl::PointCloud<pcl::PointXYZ>);
-    int                                 n_circ   = 36; // 每层点数
-    int                                 n_height = 50; // 高度层数
+    int                                 n_circ   = 20; // 每层点数
+    int                                 n_height = 25; // 高度层数
 
     Eigen::Vector3f x = axis_norm.unitOrthogonal();
     Eigen::Vector3f y = axis_norm.cross(x);
@@ -565,14 +577,13 @@ void CylinderFitter::printResults() {
     double angle_deg = angle * 180.0 / M_PI;
 
     // 输出结果
-    ROS_INFO("=============== Cylinder (PCL) =================");
+    ROS_INFO(" Cylinder");
     ROS_INFO("Bottom center: [%.2f, %.2f, %.2f]", cylinder_model_.bottom_center.x() * 1000.0,
              cylinder_model_.bottom_center.y() * 1000.0, cylinder_model_.bottom_center.z() * 1000.0);
     ROS_INFO("Axis: [%.2f, %.2f, %.2f]", axis_norm.x(), axis_norm.y(), axis_norm.z());
     ROS_INFO("Radius: %.2f mm", cylinder_model_.radius * 1000.0);
     ROS_INFO("Angle: %.2f deg", cylinder_model_.valid ? angle_deg : 0.0);
     ROS_INFO("Height: %.2f mm", cylinder_model_.height * 1000.0);
-    ROS_INFO("================================================");
 }
 
 /// @brief 视图线程
@@ -586,7 +597,7 @@ void CylinderFitter::viewerThread() {
     }
 }
 
-// ============================= 移除水平地面和平面 =============================
+// 移除水平地面和平面
 // void removePlanes(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, double dist_thresh, int max_planes,
 //                   double horizontal_angle_thresh) // 单位弧度
 // {

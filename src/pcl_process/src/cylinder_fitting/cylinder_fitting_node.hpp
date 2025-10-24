@@ -79,7 +79,7 @@ private:
     pcl::PointCloud<pcl::PointXYZ>::Ptr    cloud_{new pcl::PointCloud<pcl::PointXYZ>()}; // 点云数据
 
     // 非阻塞绘制
-    std::thread                  viewer_thread_;             //视图线程
+    std::thread                  viewer_thread_;             // 视图线程
     std::atomic<bool>            running_{true};             // 运行标志
     std::mutex                   viewer_mutex_;              // 保护viewer线程
     std::vector<std::string>     slice_shape_ids_;           // 切片形状ID
@@ -87,6 +87,8 @@ private:
     std::vector<std::string>     slice_text_ids_;            // 文本ID
     std::vector<std::string>     slice_line_ids_;            // 连线ID
     bool                         show_slice_surface_{false}; // 是否显示弧形面网格
+    bool                         show_slice_border_{false};  // 是否显示边框线
+    bool                         print_slice_centers_{true}; // 是否打印切片中心点
 
     struct CylinderModel {
         bool                                valid{false};                                  // 圆柱是否有效
