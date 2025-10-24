@@ -13,7 +13,7 @@ CylinderFitter::~CylinderFitter() {
     running_ = false;
     if (viewer_thread_.joinable()) viewer_thread_.join();
 }
-/// @brief
+/// @brief PCD 数据文件进行圆柱拟合
 /// @return
 int CylinderFitter::run_with_pcd() {
     if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_path_, *cloud_) == -1) {
@@ -67,11 +67,10 @@ int CylinderFitter::run_with_pcd() {
         std::cout << "\n调用切片函数..." << std::endl;
         sliceCylinder(180.0, 500.0, 300.0);
     }
-
     return 0;
 }
 
-/// @brief
+/// @brief RSLidar 点云进行圆柱拟合
 /// @param cloud_input
 /// @return
 int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_input) {
@@ -114,10 +113,6 @@ void CylinderFitter::estimateNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 /// @brief 圆柱拟合
 /// @param cloud 点云
 /// @param normals 法线
-/// @param axis 法线方向
-/// @param center 圆柱中心
-/// @param radius 半径
-/// @param cylinder_points 圆柱内点
 void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                                     pcl::PointCloud<pcl::Normal>::Ptr   normals) {
     pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> seg;
@@ -160,7 +155,6 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     Eigen::Vector3f proj_plane_normal = fitted_axis; // 投影平面法向量
     Eigen::Vector3f proj_center(coefficients_cylinder->values[0], coefficients_cylinder->values[1],
                                 coefficients_cylinder->values[2]);
-    // 先不打印底/顶/几何中心（尚未计算），后面计算完成再打印
 
     double max_r = 0;
     for (const auto &p : cylinder_model_.inliers->points) {
@@ -189,10 +183,17 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     cylinder_model_.height        = (max_proj - min_proj); // 米
     cylinder_model_.valid         = true;
 
+    // 强制轴向朝向 +Z
+    if (cylinder_model_.axis.z() < 0.0f) {
+        cylinder_model_.axis = -cylinder_model_.axis;
+        std::swap(cylinder_model_.bottom_center, cylinder_model_.top_center);
+        cylinder_model_.geo_center = 0.5f * (cylinder_model_.bottom_center + cylinder_model_.top_center);
+    }
+
     std::cout << "圆柱检测（优化半径）:\n"
               << "  底面中心: [" << cylinder_model_.bottom_center.transpose() << "]\n"
-              << "  顶面中心: [" << cylinder_model_.top_center.transpose() << "]\n"
               << "  几何中心: [" << cylinder_model_.geo_center.transpose() << "]\n"
+              << "  顶面中心: [" << cylinder_model_.top_center.transpose() << "]\n"
               << "  轴:   [" << cylinder_model_.axis.transpose() << "]\n"
               << "  半径: " << cylinder_model_.radius << "\n"
               << "  高度: " << cylinder_model_.height << "\n"
@@ -200,14 +201,9 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 }
 
 /// @brief 对圆柱表面切片计算
-/// @param center 圆柱中心
-/// @param axis 圆柱轴向
-/// @param radius 圆柱半径
-/// @param height 圆柱总高度
-/// @param angle_range_deg 角度范围（°）
-/// @param slice_height 切片高
-/// @param slice_width 切片宽
-
+/// @param angle_range_deg 角度范围（度）
+/// @param slice_height_mm 切片高度（毫米）
+/// @param slice_width_mm 切片宽度（毫米）
 void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_mm, double slice_width_mm) {
     if (!hasModel()) return;
 
@@ -392,16 +388,21 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
         }
     }
 
-    std::cout << "[Slice] 生成切片: 高度层=" << num_height_slices << ", 环向层=" << num_width_slices
+    std::cout << "[Slice] 生成切片:切片宽高: (" << slice_width_mm << "," << slice_height_mm
+              << ") mm, 高度层=" << num_height_slices << ", 环向层=" << num_width_slices
               << ", 显示面=" << (show_slice_surface_ ? "ON" : "OFF") << std::endl;
+
+    // 打印所有切片中心
+    ROS_INFO("[Slice Centers] Total=%zu", slice_centers_mm_.size());
+    for (size_t k = 0; k < slice_centers_mm_.size(); ++k) {
+        int         i = static_cast<int>(k / num_width_slices);
+        int         j = static_cast<int>(k % num_width_slices);
+        const auto &c = slice_centers_mm_[k];
+        ROS_INFO("  Slice (%d,%d): [%.2f mm, %.2f mm, %.2f mm]", i, j, c.x(), c.y(), c.z());
+    }
 }
 
-/// @brief
-/// @param cloud
-/// @param cylinder_points
-/// @param center
-/// @param axis
-/// @param radius
+/// @brief 可视化结果
 void CylinderFitter::visualizeResults() {
     if (!hasModel()) return;
     auto   cylinder_points = cylinder_model_.inliers;
@@ -519,11 +520,8 @@ void CylinderFitter::visualizeResults() {
                      1000.0; // 米 -> mm
     std::cout << "[Distance] 距离圆柱中心: " << dist_3d << " mm, 距离圆柱底面中心: " << dist_xy << " mm\n";
 }
-/// @brief
-/// @param center
-/// @param axis
-/// @param radius
-/// @param cylinder_points
+
+/// @brief 打印结果
 void CylinderFitter::printResults() {
     if (!hasModel()) {
         std::cerr << "[WARN] No model to print.\n";
@@ -566,30 +564,18 @@ void CylinderFitter::printResults() {
     double angle     = std::abs(max_theta - min_theta);
     double angle_deg = angle * 180.0 / M_PI;
 
-    // 喷涂区域中心（单位 mm）
-    double          theta_mid = 0.5 * (min_theta + max_theta);
-    Eigen::Vector3f spray_center =
-        center + radius * (std::cos(theta_mid) * x + std::sin(theta_mid) * y) + axis_norm * 0.5 * (min_proj + max_proj);
-
-    // 转换为 mm
-    Eigen::Vector3f center_mm       = center * 1000.0;
-    Eigen::Vector3f spray_center_mm = spray_center * 1000.0;
-    // Eigen::Vector3f axis_dir_mm     = axis_norm * 1000.0; // 如果需要用长度表示
-
-    double radius_mm = radius * 1000.0;
-
     // 输出结果
-    std::cout << "\n=========== 圆柱拟合结果 ===========" << std::endl;
-    std::cout << "圆柱底面中心: [" << center_mm.x() << ", " << center_mm.y() << ", " << center_mm.z() << "]"
-              << std::endl;
-    std::cout << "喷涂区域中心:  [" << spray_center_mm.x() << ", " << spray_center_mm.y() << ", " << spray_center_mm.z()
-              << "]" << std::endl;
-    std::cout << "圆柱轴方向: [" << axis_norm.x() << ", " << axis_norm.y() << ", " << axis_norm.z() << "]" << std::endl;
-    std::cout << "半径: " << radius_mm << " mm" << std::endl;
-    std::cout << "角度: " << angle_deg << " deg" << std::endl;
-    std::cout << "高度: " << height << " mm" << std::endl;
-    std::cout << "======================================================================" << std::endl;
+    ROS_INFO("=============== Cylinder (PCL) =================");
+    ROS_INFO("Bottom center: [%.2f, %.2f, %.2f]", cylinder_model_.bottom_center.x() * 1000.0,
+             cylinder_model_.bottom_center.y() * 1000.0, cylinder_model_.bottom_center.z() * 1000.0);
+    ROS_INFO("Axis: [%.2f, %.2f, %.2f]", axis_norm.x(), axis_norm.y(), axis_norm.z());
+    ROS_INFO("Radius: %.2f mm", cylinder_model_.radius * 1000.0);
+    ROS_INFO("Angle: %.2f deg", cylinder_model_.valid ? angle_deg : 0.0);
+    ROS_INFO("Height: %.2f mm", cylinder_model_.height * 1000.0);
+    ROS_INFO("================================================");
 }
+
+/// @brief 视图线程
 void CylinderFitter::viewerThread() {
     while (running_) {
         {
@@ -599,6 +585,7 @@ void CylinderFitter::viewerThread() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
+
 // ============================= 移除水平地面和平面 =============================
 // void removePlanes(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, double dist_thresh, int max_planes,
 //                   double horizontal_angle_thresh) // 单位弧度
@@ -609,21 +596,17 @@ void CylinderFitter::viewerThread() {
 //         pcl::PointIndices::Ptr              inliers(new pcl::PointIndices);
 //         pcl::ModelCoefficients::Ptr         coefficients(new pcl::ModelCoefficients);
 //         pcl::ExtractIndices<pcl::PointXYZ>  extract;
-
 //         seg.setOptimizeCoefficients(true);
 //         seg.setModelType(pcl::SACMODEL_PLANE);
 //         seg.setMethodType(pcl::SAC_RANSAC);
 //         seg.setDistanceThreshold(dist_thresh);
 //         seg.setInputCloud(cloud);
 //         seg.segment(*inliers, *coefficients);
-
 //         if (inliers->indices.empty()) break;
-
 //         // 判断平面是否水平（地面）
 //         Eigen::Vector3f normal(coefficients->values[0], coefficients->values[1], coefficients->values[2]);
 //         normal.normalize();
 //         double angle = std::acos(normal.dot(Eigen::Vector3f::UnitZ()));
-
 //         // 如果水平或接近平面，移除
 //         if (angle < horizontal_angle_thresh || angle > M_PI - horizontal_angle_thresh) {
 //             extract.setInputCloud(cloud);
@@ -643,7 +626,6 @@ void CylinderFitter::viewerThread() {
 //         }
 //     }
 // }
-
 // int main(int argc, char **argv) {
 //     std::string    path = "/home/oneko/projects/lidar/ros_airy_work/src/pcd_datas/2.pcd";
 //     CylinderFitter app(path);

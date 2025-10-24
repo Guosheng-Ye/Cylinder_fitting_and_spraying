@@ -13,6 +13,7 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <ros/ros.h>
 #include <string>
 #include <thread>
 #include <vector>
@@ -69,40 +70,33 @@ private:
     /// @param radius 半径
     void visualizeResults();
 
-    /// @brief
-    /// @param center 圆柱中线
-    /// @param axis 圆柱轴向
-    /// @param radius 圆柱半径
-    /// @param cylinder_points
     void printResults();
-
-    /// @brief
     void viewerThread();
 
 private:
-    std::string                            pcd_path_;
+    std::string                            pcd_path_;                                    // PCD文件路径
     pcl::visualization::PCLVisualizer::Ptr viewer_;                                      //可视化器
     pcl::PointCloud<pcl::PointXYZ>::Ptr    cloud_{new pcl::PointCloud<pcl::PointXYZ>()}; // 点云数据
 
     // 非阻塞绘制
-    std::thread                  viewer_thread_;
-    std::atomic<bool>            running_{true};
-    std::mutex                   viewer_mutex_;
+    std::thread                  viewer_thread_;             //视图线程
+    std::atomic<bool>            running_{true};             // 运行标志
+    std::mutex                   viewer_mutex_;              // 保护viewer线程
     std::vector<std::string>     slice_shape_ids_;           // 切片形状ID
-    std::vector<Eigen::Vector3f> slice_centers_mm_;          // 以毫米存储切片中心
+    std::vector<Eigen::Vector3f> slice_centers_mm_;          // 存储切片中心
     std::vector<std::string>     slice_text_ids_;            // 文本ID
     std::vector<std::string>     slice_line_ids_;            // 连线ID
     bool                         show_slice_surface_{false}; // 是否显示弧形面网格
 
     struct CylinderModel {
-        bool                                valid{false};
-        Eigen::Vector3f                     axis{0, 0, 1};
-        Eigen::Vector3f                     bottom_center{0, 0, 0};
-        Eigen::Vector3f                     top_center{0, 0, 0};
-        Eigen::Vector3f                     geo_center{0, 0, 0}; // 几何中心（底面与顶面中点）
-        double                              radius{0.0};
-        double                              height{0.0}; // 米
-        pcl::PointCloud<pcl::PointXYZ>::Ptr inliers{new pcl::PointCloud<pcl::PointXYZ>()};
+        bool                                valid{false};                                  // 圆柱是否有效
+        Eigen::Vector3f                     axis{0, 0, 1};                                 // 轴向
+        Eigen::Vector3f                     bottom_center{0, 0, 0};                        // 底面中心
+        Eigen::Vector3f                     top_center{0, 0, 0};                           // 顶面中心
+        Eigen::Vector3f                     geo_center{0, 0, 0};                           // 几何中心
+        double                              radius{0.0};                                   // 半径
+        double                              height{0.0};                                   // 高度
+        pcl::PointCloud<pcl::PointXYZ>::Ptr inliers{new pcl::PointCloud<pcl::PointXYZ>()}; // 内点
     } cylinder_model_;
 };
 
