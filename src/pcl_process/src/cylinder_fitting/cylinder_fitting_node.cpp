@@ -114,7 +114,7 @@ void CylinderFitter::estimateNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     ne.compute(*normals);
 }
 
-/// @brief 圆柱拟合
+/// @brief 标准圆柱拟合
 /// @param cloud 点云
 /// @param normals 法线
 void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
@@ -204,12 +204,14 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
               << "  内点数: " << inliers_cylinder->indices.size() << " points\n";
 }
 
-/// @brief 对圆柱表面切片计算
+/// @brief 对标准圆柱表面切片计算
 /// @param angle_range_deg 角度范围（度）
 /// @param slice_height_mm 切片高度（毫米）
 /// @param slice_width_mm 切片宽度（毫米）
 void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_mm, double slice_width_mm) {
     if (!hasModel()) return;
+
+    const auto &opt = slice_opts_;
 
     Eigen::Vector3f bottom_center_mm = cylinder_model_.bottom_center * 1000.0f;
     Eigen::Vector3f axis             = cylinder_model_.axis;
@@ -245,6 +247,8 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
     for (int i = 0; i < num_height_slices; ++i) {
         double h_mm = (i + 0.5) * (height_mm / num_height_slices);
 
+        std::vector<Eigen::Vector3f> layer_centers_mm; // 收集该高度层的切片中心
+
         for (int j = 0; j < num_width_slices; ++j) {
             double theta = min_theta + (j + 0.5) * (angle_range / num_width_slices);
 
@@ -269,7 +273,7 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
             pcl::PointCloud<pcl::PointXYZ> patch_cloud;
             std::vector<pcl::Vertices>     polygons;
 
-            if (show_slice_surface_) { // true 生成弧形面网格
+            if (opt.surface_) { // true 生成弧形面网格
                 patch_cloud.reserve(theta_samples * height_samples);
                 for (int hi = 0; hi < height_samples; ++hi) {
                     double          hh_mm = h0 + (h1 - h0) * (double)hi / (height_samples - 1);
@@ -320,7 +324,7 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                 slice_text_ids_.push_back(text_id);
 
                 // 可选弧形面
-                if (show_slice_surface_ && !patch_cloud.empty() && !polygons.empty()) {
+                if (opt.surface_ && !patch_cloud.empty() && !polygons.empty()) {
                     pcl::PolygonMesh mesh;
                     pcl::toPCLPointCloud2(patch_cloud, mesh.cloud);
                     mesh.polygons = polygons;
@@ -336,7 +340,7 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                 }
 
                 // 边框线：采样用于弧线 & 竖线
-                if (show_slice_border_) {
+                if (opt.border_) {
                     auto addLineSeg = [&](const Eigen::Vector3f &p0_mm, const Eigen::Vector3f &p1_mm, double r,
                                           double g, double b, const std::string &id) {
                         viewer_->addLine(pcl::PointXYZ(p0_mm.x() / 1000.0f, p0_mm.y() / 1000.0f, p0_mm.z() / 1000.0f),
@@ -348,7 +352,7 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                     int arc_samples = std::max(8, theta_samples); // 底/顶弧细分
                     // 底弧
                     for (int k = 0; k < arc_samples - 1; ++k) {
-                        double          t0 = theta0 + (theta1 - theta0) * (double)k / (arc_samples - 1);
+                        double          t0 = theta0 + (theta1 - theta0) * (double)k / (arc_samples - 1); 
                         double          t1 = theta0 + (theta1 - theta0) * (double)(k + 1) / (arc_samples - 1);
                         Eigen::Vector3f p0 =
                             bottom_center_mm + h0 * z + radius_mm * (std::cos(t0) * x + std::sin(t0) * y);
@@ -394,16 +398,36 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                 }
             }
 
+            layer_centers_mm.push_back(slice_center_mm);
             slice_centers_mm_.push_back(slice_center_mm);
+        }
+
+        // 绘制该高度层的环线
+        if (opt.height_rings_ && layer_centers_mm.size() > 1) {
+            std::lock_guard<std::mutex> lock(viewer_mutex_);
+            int                         ring_samples = 96;
+            for (int k = 0; k < ring_samples; ++k) {
+                double          th0 = 2.0 * M_PI * k / ring_samples;
+                double          th1 = 2.0 * M_PI * (k + 1) / ring_samples;
+                Eigen::Vector3f p0_mm =
+                    bottom_center_mm + h_mm * z + radius_mm * (std::cos(th0) * x + std::sin(th0) * y);
+                Eigen::Vector3f p1_mm =
+                    bottom_center_mm + h_mm * z + radius_mm * (std::cos(th1) * x + std::sin(th1) * y);
+                std::string ring_id = "height_full_ring_" + std::to_string(i) + "_" + std::to_string(k);
+                viewer_->addLine(pcl::PointXYZ(p0_mm.x() / 1000.0f, p0_mm.y() / 1000.0f, p0_mm.z() / 1000.0f),
+                                 pcl::PointXYZ(p1_mm.x() / 1000.0f, p1_mm.y() / 1000.0f, p1_mm.z() / 1000.0f), 1.0, 0.2,
+                                 0.8, ring_id); // 洋红色
+                slice_line_ids_.push_back(ring_id);
+            }
         }
     }
 
     std::cout << "[Slice] 生成切片:切片宽高: (" << slice_width_mm << "," << slice_height_mm
               << ") mm, 高度层=" << num_height_slices << ", 环向层=" << num_width_slices
-              << ", 显示面=" << (show_slice_surface_ ? "ON" : "OFF") << std::endl;
+              << ", 显示面=" << (opt.surface_ ? "ON" : "OFF") << std::endl;
 
     // 打印所有切片中心
-    if (print_slice_centers_) {
+    if (opt.print_centers_) {
         ROS_INFO("[Slice Centers] Total=%zu", slice_centers_mm_.size());
         for (size_t k = 0; k < slice_centers_mm_.size(); ++k) {
             int         i = static_cast<int>(k / num_width_slices);
