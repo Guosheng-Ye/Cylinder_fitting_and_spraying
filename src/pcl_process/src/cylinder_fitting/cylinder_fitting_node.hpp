@@ -31,9 +31,19 @@ public:
         bool height_rings_{false}; // 高度层环线
         bool print_centers_{true}; // 切片中心点
     };
-    void                   setSliceVizOptions(const SliceVizOptions &opt) { slice_opts_ = opt; }
-    SliceVizOptions       &sliceOptions() { return slice_opts_; }
-    const SliceVizOptions &sliceOptions() const { return slice_opts_; }
+    /// @brief 切片数据
+    struct SliceData {
+        std::string     id;               // 例如 "3_5"
+        int             layer_index{0};   // 高度层索引 i
+        int             angular_index{0}; // 角度层索引 j
+        Eigen::Vector3f center_mm;        // 切片中心坐标 (mm)
+        Eigen::Vector3f circle_center_mm; // 该高度平面圆心(轴线上点) (mm)
+    };
+
+    void                          setSliceVizOptions(const SliceVizOptions &opt) { slice_opts_ = opt; }
+    SliceVizOptions              &sliceOptions() { return slice_opts_; }
+    const SliceVizOptions        &sliceOptions() const { return slice_opts_; }
+    const std::vector<SliceData> &slicesData() const { return slices_data_; } // 获取切片数据
 
 public:
     int run_with_pcd();
@@ -100,6 +110,7 @@ private:
     std::vector<Eigen::Vector3f> slice_centers_mm_; // 存储切片中心
     std::vector<std::string>     slice_text_ids_;   // 文本ID
     std::vector<std::string>     slice_line_ids_;   // 连线ID
+    std::vector<SliceData>       slices_data_;      // 所有切片数据
 
     SliceVizOptions slice_opts_; // 集中管理切片显示/打印参数
     struct CylinderModel {

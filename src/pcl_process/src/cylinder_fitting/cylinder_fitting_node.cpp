@@ -37,13 +37,6 @@ int CylinderFitter::run_with_pcd() {
     std::cout << "After angle filtering: " << cloud_filtered_angle->size() << " points remain.\n";
     cloud_ = cloud_filtered_angle;
 
-    // 移除地面和平面
-    // removePlanes(cloud_, 0.02, 3, 10.0 * M_PI / 180.0); // 最大移除5个平面，角度阈值10°
-    // if (cloud_->empty()) {
-    //     std::cerr << "[WARN] No points left after plane removal.\n";
-    //     return -1;
-    // }
-
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
     // 法线估计
     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
@@ -59,9 +52,6 @@ int CylinderFitter::run_with_pcd() {
     // 可视化
     visualizeResults();
 
-    /// 打印数值结果
-    printResults();
-
     // 计算圆柱高度并调用切片
     if (hasModel()) {
         std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
@@ -71,6 +61,9 @@ int CylinderFitter::run_with_pcd() {
         std::chrono::duration<double> slice_time = std::chrono::duration_cast<std::chrono::duration<double>>(t4 - t3);
         std::cout << "Slice time: " << slice_time.count() << " seconds.\n";
     }
+
+    /// 打印数值结果
+    printResults();
     return 0;
 }
 
@@ -94,6 +87,16 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
 
     // 可视化
     visualizeResults();
+
+    // 计算圆柱高度并调用切片
+    if (hasModel()) {
+        std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
+        std::cout << "\n调用切片函数..." << std::endl;
+        sliceCylinder(180.0, 500.0, 300.0);
+        std::chrono::steady_clock::time_point t4 = std::chrono::steady_clock::now();
+        std::chrono::duration<double> slice_time = std::chrono::duration_cast<std::chrono::duration<double>>(t4 - t3);
+        std::cout << "Slice time: " << slice_time.count() << " seconds.\n";
+    }
 
     // 打印结果
     printResults();
@@ -242,6 +245,7 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
         slice_text_ids_.clear();
         slice_line_ids_.clear();
         slice_centers_mm_.clear();
+        slices_data_.clear();
     }
 
     for (int i = 0; i < num_height_slices; ++i) {
@@ -315,13 +319,13 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                 slice_shape_ids_.push_back(sphere_id);
 
                 // 文本
-                std::ostringstream oss;
-                oss << i << "," << j;
-                viewer_->addText3D(oss.str(),
-                                   pcl::PointXYZ(slice_center_mm.x() / 1000.0f, slice_center_mm.y() / 1000.0f,
-                                                 slice_center_mm.z() / 1000.0f),
-                                   0.05, 1.0, 1.0, 1.0, text_id);
-                slice_text_ids_.push_back(text_id);
+                // std::ostringstream oss;
+                // oss << i << "," << j;
+                // viewer_->addText3D(oss.str(),
+                //                    pcl::PointXYZ(slice_center_mm.x() / 1000.0f, slice_center_mm.y() / 1000.0f,
+                //                                  slice_center_mm.z() / 1000.0f),
+                //                    0.05, 1.0, 1.0, 1.0, text_id);
+                // slice_text_ids_.push_back(text_id);
 
                 // 可选弧形面
                 if (opt.surface_ && !patch_cloud.empty() && !polygons.empty()) {
@@ -352,7 +356,7 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                     int arc_samples = std::max(8, theta_samples); // 底/顶弧细分
                     // 底弧
                     for (int k = 0; k < arc_samples - 1; ++k) {
-                        double          t0 = theta0 + (theta1 - theta0) * (double)k / (arc_samples - 1); 
+                        double          t0 = theta0 + (theta1 - theta0) * (double)k / (arc_samples - 1);
                         double          t1 = theta0 + (theta1 - theta0) * (double)(k + 1) / (arc_samples - 1);
                         Eigen::Vector3f p0 =
                             bottom_center_mm + h0 * z + radius_mm * (std::cos(t0) * x + std::sin(t0) * y);
@@ -400,6 +404,15 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
 
             layer_centers_mm.push_back(slice_center_mm);
             slice_centers_mm_.push_back(slice_center_mm);
+
+            //构建 SliceData
+            SliceData sd;
+            sd.layer_index      = i;
+            sd.angular_index    = j;
+            sd.id               = std::to_string(i) + "_" + std::to_string(j);
+            sd.center_mm        = slice_center_mm; //切片表面中心
+            sd.circle_center_mm = axial_pos_mm;    //轴线上该高度层中心
+            slices_data_.push_back(std::move(sd));
         }
 
         // 绘制该高度层的环线
@@ -427,15 +440,15 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
               << ", 显示面=" << (opt.surface_ ? "ON" : "OFF") << std::endl;
 
     // 打印所有切片中心
-    if (opt.print_centers_) {
-        ROS_INFO("[Slice Centers] Total=%zu", slice_centers_mm_.size());
-        for (size_t k = 0; k < slice_centers_mm_.size(); ++k) {
-            int         i = static_cast<int>(k / num_width_slices);
-            int         j = static_cast<int>(k % num_width_slices);
-            const auto &c = slice_centers_mm_[k];
-            ROS_INFO("  Slice (%d,%d): [%.2f mm, %.2f mm, %.2f mm]", i, j, c.x(), c.y(), c.z());
-        }
-    }
+    // if (opt.print_centers_) {
+    //     ROS_INFO("[Slice Centers] Total=%zu", slice_centers_mm_.size());
+    //     for (size_t k = 0; k < slice_centers_mm_.size(); ++k) {
+    //         int         i = static_cast<int>(k / num_width_slices);
+    //         int         j = static_cast<int>(k % num_width_slices);
+    //         const auto &c = slice_centers_mm_[k];
+    //         ROS_INFO("  Slice (%d,%d): [%.2f mm, %.2f mm, %.2f mm]", i, j, c.x(), c.y(), c.z());
+    //     }
+    // }
 }
 
 /// @brief 可视化结果
@@ -608,6 +621,16 @@ void CylinderFitter::printResults() {
     ROS_INFO("Radius: %.2f mm", cylinder_model_.radius * 1000.0);
     ROS_INFO("Angle: %.2f deg", cylinder_model_.valid ? angle_deg : 0.0);
     ROS_INFO("Height: %.2f mm", cylinder_model_.height * 1000.0);
+
+    const auto &all = slices_data_;
+    for (const auto &s : all) {
+        std::cout << "Slice " << s.id << " center=[" << s.center_mm.x() << ", " << s.center_mm.y() << ", "
+                  << s.center_mm.z() << "] axis_center=[" << s.circle_center_mm.x() << ", " << s.circle_center_mm.y()
+                  << ", " << s.circle_center_mm.z() << "] axis: [" << cylinder_model_.axis.transpose()
+                  << "], radius: " << cylinder_model_.radius * 1000.0 << " mm\n";
+    }
+
+    ROS_WARN(" Cylinder fitting completed.");
 }
 
 /// @brief 视图线程
