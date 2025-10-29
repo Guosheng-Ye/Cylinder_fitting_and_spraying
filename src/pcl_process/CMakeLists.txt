@@ -9,12 +9,31 @@ find_package(catkin REQUIRED COMPONENTS
     pcl_conversions
     sensor_msgs
     std_msgs
+    message_generation
+    geometry_msgs
 )
 find_package(PCL REQUIRED)
 
 ## -----------------------------------------------------------------------------
 ## Catkin 包配置（导出头文件与库）
 ## -----------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
+## 消息文件设置
+## -----------------------------------------------------------------------------
+add_message_files(
+    FILES
+    TargetPose.msg
+    TargetPoseList.msg
+    # CylinderSlice.msg
+    # CylinderSliceArray.msg
+)
+
+generate_messages(
+    DEPENDENCIES
+    std_msgs
+    geometry_msgs
+)
+
 catkin_package(
     CATKIN_DEPENDS
     roscpp
@@ -22,15 +41,19 @@ catkin_package(
     pcl_conversions
     sensor_msgs
     std_msgs
+    message_runtime
+    geometry_msgs
     DEPENDS
     PCL
     INCLUDE_DIRS
     src/cylinder_fitting
     src/rslidar_process
     src/pcd_viewer
+    src/tests
     LIBRARIES
     cylinder_fitting_node
     rslidar_process
+    tests
 )
 
 
@@ -99,6 +122,19 @@ target_link_libraries(cylinder_fitting_node_ros
     ${PCL_LIBRARIES}
 )
 
+##
+## Tests 测试节点
+##
+add_executable(test_achieve_work_pose_pub
+    src/tests/achieve_work_pose_pub.cpp
+)
+target_link_libraries(
+    test_achieve_work_pose_pub
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+)
+
+
 ## -----------------------------------------------------------------------------
 ## PCD 查看节点
 ## -----------------------------------------------------------------------------
@@ -115,6 +151,7 @@ install(TARGETS
     ${PROJECT_NAME}
     rslidar_process_node
     cylinder_fitting_node_ros
+    test_achieve_work_pose_pub
     RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
     LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
     ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
