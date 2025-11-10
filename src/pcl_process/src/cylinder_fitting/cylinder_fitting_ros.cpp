@@ -6,15 +6,15 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*msg, *cloud);
 
-    static ros::Time last_log_time = ros::Time(0);
-    ros::Time        now           = ros::Time::now();
-    if ((now - last_log_time).toSec() > 10.0) {
-        ROS_INFO("Received filtered cloud with %zu points", cloud->size());
-        last_log_time = now;
-    }
+    // static ros::Time last_log_time = ros::Time(0);
+    // ros::Time        now           = ros::Time::now();
+    // if ((now - last_log_time).toSec() > 10.0) {
+    //     ROS_INFO("Received filtered cloud with %zu points", cloud->size());
+    //     last_log_time = now;
+    // }
 
     try {
-        /// archive_work_pose :true 开启检测，false：不检测
+        /// acheive_work_pose :true 开启检测，false：不检测
         // std_msgs::Bool data;
         if (processing_.load(std::memory_order_acquire)) {
             ROS_ERROR("Cylinder fitting is currently enabled by main control command.");
