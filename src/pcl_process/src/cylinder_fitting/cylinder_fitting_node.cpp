@@ -273,7 +273,9 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
     double          radius_mm        = cylinder_model_.radius * 1000.0;
     double          height_mm        = cylinder_model_.height * 1000.0;
 
-    Eigen::Vector3f ref(-1.0f, 0.0f, 0.0f);
+    // 工作点参考方向：X轴负方向（-1，0，0）
+    //         Y轴负方向 (0，-1，0）
+    Eigen::Vector3f ref(0.0f, -1.0f, 0.0f);
     if (std::abs(ref.dot(z)) > 0.95f) ref = Eigen::Vector3f(0.0f, 1.0f, 0.0f);
     Eigen::Vector3f x = (ref - z * ref.dot(z)).normalized();
     Eigen::Vector3f y = z.cross(x).normalized();
@@ -696,49 +698,3 @@ void CylinderFitter::viewerThread() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
-
-// 移除水平地面和平面
-// void removePlanes(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, double dist_thresh, int max_planes,
-//                   double horizontal_angle_thresh) // 单位弧度
-// {
-//     int planes_removed = 0;
-//     while (planes_removed < max_planes) {
-//         pcl::SACSegmentation<pcl::PointXYZ> seg;
-//         pcl::PointIndices::Ptr              inliers(new pcl::PointIndices);
-//         pcl::ModelCoefficients::Ptr         coefficients(new pcl::ModelCoefficients);
-//         pcl::ExtractIndices<pcl::PointXYZ>  extract;
-//         seg.setOptimizeCoefficients(true);
-//         seg.setModelType(pcl::SACMODEL_PLANE);
-//         seg.setMethodType(pcl::SAC_RANSAC);
-//         seg.setDistanceThreshold(dist_thresh);
-//         seg.setInputCloud(cloud);
-//         seg.segment(*inliers, *coefficients);
-//         if (inliers->indices.empty()) break;
-//         // 判断平面是否水平（地面）
-//         Eigen::Vector3f normal(coefficients->values[0], coefficients->values[1], coefficients->values[2]);
-//         normal.normalize();
-//         double angle = std::acos(normal.dot(Eigen::Vector3f::UnitZ()));
-//         // 如果水平或接近平面，移除
-//         if (angle < horizontal_angle_thresh || angle > M_PI - horizontal_angle_thresh) {
-//             extract.setInputCloud(cloud);
-//             extract.setIndices(inliers);
-//             extract.setNegative(true);
-//             extract.filter(*cloud);
-//             std::cout << "[INFO] Ground plane removed. Remaining points: " << cloud->size() << std::endl;
-//             ++planes_removed;
-//         } else {
-//             // 非水平平面也移除（墙面等）
-//             extract.setInputCloud(cloud);
-//             extract.setIndices(inliers);
-//             extract.setNegative(true);
-//             extract.filter(*cloud);
-//             std::cout << "[INFO] Other plane removed. Remaining points: " << cloud->size() << std::endl;
-//             ++planes_removed;
-//         }
-//     }
-// }
-// int main(int argc, char **argv) {
-//     std::string    path = "/home/oneko/projects/lidar/ros_airy_work/src/pcd_datas/2.pcd";
-//     CylinderFitter app(path);
-//     return app.run();
-// }
