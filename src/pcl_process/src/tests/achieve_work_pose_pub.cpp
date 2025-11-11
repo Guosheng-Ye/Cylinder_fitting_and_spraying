@@ -3,7 +3,7 @@
 
 class AchieveWorkPosePub {
 public:
-    AchieveWorkPosePub(ros::NodeHandle &nh) { pub_ = nh.advertise<std_msgs::Bool>("/archieve_work_pose", 1); }
+    AchieveWorkPosePub(ros::NodeHandle &nh) { pub_ = nh.advertise<std_msgs::Bool>("/achieve_work_pose", 1); }
 
     void publish(bool value) {
         std_msgs::Bool msg;
@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
     while (ros::ok()) {
         toggle = !toggle;
         achieve_pub.publish(toggle);
-        ROS_INFO("Published /archieve_work_pose: %s", toggle ? "true" : "false");
+        ROS_INFO("Published /achieve_work_pose: %s", toggle ? "true" : "false");
         ros::spinOnce();
         loop_rate.sleep();
     }
