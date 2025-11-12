@@ -1,26 +1,7 @@
 <launch>
-  <!-- ========== 参数设置 ========== -->
-  <arg name="pcd_file" default="$(find pcl_process)/data/test.pcd" />
-  <arg name="frame_id" default="map" />
+  <!-- 雷达处理节点 (对应 rosrun pcl_process rslidar_process_node) -->
+  <node pkg="pcl_process" type="rslidar_process_node" name="rslidar_process_node" output="screen"/>
 
-  <!-- ========== 启动 pcd_viewer 节点 ========== -->
-  <node
-    pkg="pcl_process"
-    type="pcd_viewer_node"
-    name="pcd_viewer_node"
-    output="screen"
-  >
-    <!-- 如果代码支持参数输入，可以加这些 -->
-    <param name="pcd_file" value="$(arg pcd_file)" />
-    <param name="frame_id" value="$(arg frame_id)" />
-  </node>
-
-  <!-- ========== 启动 RViz 可视化（可选） ========== -->
-  <node
-    pkg="rviz"
-    type="rviz"
-    name="rviz"
-    output="screen"
-    args="-d $(find pcl_process)/rviz/pcd_viewer.rviz"
-  />
+  <!-- 圆柱拟合节点 (对应 rosrun pcl_process cylinder_fitting_node_ros) -->
+  <node pkg="pcl_process" type="cylinder_fitting_node_ros" name="cylinder_fitting_node" output="screen"/>
 </launch>
