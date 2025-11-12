@@ -29,10 +29,17 @@ void RSLidarFilterNode::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &ms
         if (std::abs(angle) <= angle_limit) {
             filtered->push_back(p);
         }
+
+        // if (p.x <= 0) continue; // 位于后方或原点附近，不保留
+        // // 计算点相对于前向(+X)的偏转角：前向向量为 (1,0)，使用 atan2(横向, 前向)
+        // double angle = std::atan2(p.y, p.x); // p.x 为横向（右正），p.y 为前向
+        // if (std::abs(angle) <= angle_limit) {
+        //     filtered->push_back(p);
+        // }
     }
 
     ROS_INFO_STREAM("[Angle Filter] Input: " << cloud->size() << " -> Output: " << filtered->size()
-                                            << " points (forward " << (angle_limit * 180.0 / M_PI) << " around +Y)");
+                                             << " points (forward " << (angle_limit * 180.0 / M_PI) << " around +Y)");
 
     // ============== 发布过滤结果 ==============
     sensor_msgs::PointCloud2 output_msg;
