@@ -87,6 +87,13 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
     estimateNormals(cloud_, normals);
 
     // 圆柱拟合
+    const auto &fp = fitting_params_;
+    ROS_INFO(
+        "Fitting params: min_inliers=%d, max_inliers=%d, min_inlier_ratio=%.4f, max_inlier_ratio=%.4f, "
+        "min_height_m=%.2f, min_radius_m=%.2f, max_radius_m=%.2f, min_radial_rel_std=%.4f, max_radial_rel_std=%.4f",
+        "slice_height=%.2f, slice_weight=%.2f", fp.min_inliers, fp.max_inliers, fp.min_inlier_ratio,
+        fp.max_inlier_ratio, fp.min_height_m, fp.min_radius_m, fp.max_radius_m, fp.min_radial_rel_std,
+        fp.max_radial_rel_std, fp.slice_height_, fp.slice_weight_);
     fitCylinderPCL(cloud_, normals);
 
     if (!hasModel()) {
@@ -99,7 +106,7 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
     // 计算圆柱高度并调用切片
     if (hasModel()) {
         std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
-        sliceCylinder(180.0, 500.0, 300.0);
+        sliceCylinder(180.0, fp.slice_height_, fp.slice_weight_);
         std::chrono::steady_clock::time_point t4 = std::chrono::steady_clock::now();
         std::chrono::duration<double> slice_time = std::chrono::duration_cast<std::chrono::duration<double>>(t4 - t3);
         ROS_WARN("Slice time: %f seconds.", slice_time.count());
@@ -120,8 +127,250 @@ void CylinderFitter::estimateNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     pcl::search::KdTree<pcl::PointXYZ>::Ptr           tree(new pcl::search::KdTree<pcl::PointXYZ>());
     ne.setInputCloud(cloud);
     ne.setSearchMethod(tree);
-    ne.setKSearch(200); // 搜索点数
+    ne.setKSearch(50); // 搜索点数
     ne.compute(*normals);
+}
+
+/// @brief 改进的墙面去除函数（支持多墙面场景）
+void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
+                                 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered, double angle_threshold = 15.0,
+                                 double distance_threshold = 0.02, int max_iterations = 5000) {
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    *temp_cloud = *cloud;
+
+    int       walls_removed = 0;
+    const int max_walls     = 2; // 最多检测4面墙
+
+    while (walls_removed < max_walls && temp_cloud->size() > cloud->size() * 0.3) {
+        pcl::SACSegmentation<pcl::PointXYZ> seg;
+        pcl::PointIndices::Ptr              inliers(new pcl::PointIndices);
+        pcl::ModelCoefficients::Ptr         coefficients(new pcl::ModelCoefficients);
+
+        seg.setOptimizeCoefficients(true);
+        seg.setModelType(pcl::SACMODEL_PLANE);
+        seg.setMethodType(pcl::SAC_RANSAC);
+        seg.setMaxIterations(max_iterations);
+        seg.setDistanceThreshold(distance_threshold);
+        seg.setInputCloud(temp_cloud);
+
+        seg.segment(*inliers, *coefficients);
+
+        if (inliers->indices.empty() || inliers->indices.size() < 100) {
+            break; // 没有更多显著平面
+        }
+
+        // 计算平面与Z轴的夹角
+        Eigen::Vector3f plane_normal(coefficients->values[0], coefficients->values[1], coefficients->values[2]);
+        plane_normal.normalize();
+
+        Eigen::Vector3f z_axis(0.0, 0.0, 1.0);
+        double          angle = std::acos(std::abs(plane_normal.dot(z_axis))) * 180.0 / M_PI;
+
+        // 判断是否为竖直墙面（法向量与Z轴接近垂直）
+        if (std::abs(angle - 90.0) < angle_threshold) {
+            // 去除墙面点
+            pcl::ExtractIndices<pcl::PointXYZ> extract;
+            extract.setInputCloud(temp_cloud);
+            extract.setIndices(inliers);
+            extract.setNegative(true);
+
+            pcl::PointCloud<pcl::PointXYZ>::Ptr temp_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+            extract.filter(*temp_filtered);
+
+            ROS_INFO("Removed wall %d with %zu points (angle: %.2f°)", walls_removed + 1, inliers->indices.size(),
+                     angle);
+
+            temp_cloud = temp_filtered;
+            walls_removed++;
+        } else {
+            break; // 不是墙面，停止检测
+        }
+    }
+
+    // 安全检查：保证至少保留15%的点
+    if (temp_cloud->size() < cloud->size() * 0.15) {
+        ROS_WARN("Too many points removed (%.1f%%), keeping original cloud.",
+                 100.0 * (1.0 - (double)temp_cloud->size() / cloud->size()));
+        *cloud_filtered = *cloud;
+    } else {
+        *cloud_filtered = *temp_cloud;
+        ROS_INFO("Wall removal complete: %d walls removed, %zu -> %zu points (kept %.1f%%)", walls_removed,
+                 cloud->size(), cloud_filtered->size(), 100.0 * cloud_filtered->size() / cloud->size());
+    }
+}
+
+/// @brief 提取对应的法向量
+bool CylinderFitter::extractCorrespondingNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_original,
+                                                 pcl::PointCloud<pcl::Normal>::Ptr   normals_original,
+                                                 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered,
+                                                 pcl::PointCloud<pcl::Normal>::Ptr   normals_filtered) {
+
+    if (cloud_original->size() != normals_original->size()) {
+        ROS_ERROR("Cloud and normals size mismatch: %zu vs %zu!", cloud_original->size(), normals_original->size());
+        return false;
+    }
+
+    // 构建KD树用于快速查找
+    pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
+    kdtree.setInputCloud(cloud_original);
+
+    normals_filtered->points.clear();
+    normals_filtered->points.reserve(cloud_filtered->size());
+
+    int matched = 0;
+    for (const auto &pt : cloud_filtered->points) {
+        std::vector<int>   indices(1);
+        std::vector<float> distances(1);
+
+        if (kdtree.nearestKSearch(pt, 1, indices, distances) > 0) {
+            if (distances[0] < 1e-6) { // 确保是同一个点（距离几乎为0）
+                normals_filtered->points.push_back(normals_original->points[indices[0]]);
+                matched++;
+            } else {
+                // 如果找不到精确匹配，使用最近邻的法向量
+                normals_filtered->points.push_back(normals_original->points[indices[0]]);
+            }
+        }
+    }
+
+    normals_filtered->width    = normals_filtered->points.size();
+    normals_filtered->height   = 1;
+    normals_filtered->is_dense = true;
+
+    ROS_INFO("Extracted %d/%zu corresponding normals", matched, cloud_filtered->size());
+    return normals_filtered->size() == cloud_filtered->size();
+}
+
+/// @brief 计算圆度（点在圆周上的分布均匀性）
+double CylinderFitter::calculateCircularity(pcl::PointCloud<pcl::PointXYZ>::Ptr inliers, const Eigen::Vector3f &center,
+                                            const Eigen::Vector3f &axis, double radius) {
+
+    if (inliers->size() < 10) return 0.0;
+
+    // 将点投影到垂直于轴的平面，计算角度分布
+    const int        num_sectors = 24; // 15度一个扇区（从36改为24，降低对完整性要求）
+    std::vector<int> sector_counts(num_sectors, 0);
+
+    Eigen::Vector3f axis_norm = axis.normalized();
+
+    // 构建局部坐标系
+    Eigen::Vector3f ref_x = (std::abs(axis_norm.z()) < 0.9) ? Eigen::Vector3f(0, 0, 1).cross(axis_norm).normalized()
+                                                            : Eigen::Vector3f(1, 0, 0).cross(axis_norm).normalized();
+    Eigen::Vector3f ref_y = axis_norm.cross(ref_x).normalized();
+
+    for (const auto &p : inliers->points) {
+        Eigen::Vector3f pt(p.x, p.y, p.z);
+        Eigen::Vector3f v = pt - center;
+
+        // 投影到垂直于轴的平面
+        Eigen::Vector3f v_proj = v - (v.dot(axis_norm)) * axis_norm;
+
+        if (v_proj.norm() < 1e-6) continue;
+
+        double x_comp = v_proj.dot(ref_x);
+        double y_comp = v_proj.dot(ref_y);
+        double angle  = std::atan2(y_comp, x_comp);
+        if (angle < 0) angle += 2.0 * M_PI;
+
+        int sector = static_cast<int>(angle / (2.0 * M_PI) * num_sectors);
+        sector     = std::min(sector, num_sectors - 1);
+        sector_counts[sector]++;
+    }
+
+    // 计算非空扇区的比例
+    int non_empty_sectors         = 0;
+    int max_consecutive_empty     = 0;
+    int current_consecutive_empty = 0;
+
+    for (int i = 0; i < num_sectors * 2; ++i) { // 循环两次检测连续空扇区
+        int idx = i % num_sectors;
+        if (sector_counts[idx] > 0) {
+            non_empty_sectors         = (i < num_sectors) ? non_empty_sectors + 1 : non_empty_sectors;
+            max_consecutive_empty     = std::max(max_consecutive_empty, current_consecutive_empty);
+            current_consecutive_empty = 0;
+        } else {
+            current_consecutive_empty++;
+        }
+    }
+
+    double coverage_ratio = (double)non_empty_sectors / (double)num_sectors;
+
+    // **改进1：如果覆盖率达到50%以上，就认为是有效圆柱**
+    // 这对于被遮挡的圆柱更友好
+    if (coverage_ratio < 0.5) {
+        return coverage_ratio; // 覆盖率太低，直接返回
+    }
+
+    // **改进2：检查是否存在大的连续空洞（说明可能是墙角）**
+    // 如果最大连续空洞超过180度（一半），可能不是圆柱
+    double max_gap_ratio = (double)max_consecutive_empty / (double)num_sectors;
+    if (max_gap_ratio > 0.6) {
+        return coverage_ratio * 0.6; // 惩罚有大空洞的情况
+    }
+
+    // **改进3：计算有点扇区的径向一致性**
+    // 真圆柱的点到轴心距离应该接近一致
+    std::vector<double> radii_by_sector;
+    for (int i = 0; i < num_sectors; ++i) {
+        if (sector_counts[i] > 0) {
+            // 计算该扇区点的平均半径
+            double sector_sum_r       = 0.0;
+            int    sector_point_count = 0;
+
+            for (const auto &p : inliers->points) {
+                Eigen::Vector3f pt(p.x, p.y, p.z);
+                Eigen::Vector3f v      = pt - center;
+                Eigen::Vector3f v_proj = v - (v.dot(axis_norm)) * axis_norm;
+
+                if (v_proj.norm() < 1e-6) continue;
+
+                double x_comp = v_proj.dot(ref_x);
+                double y_comp = v_proj.dot(ref_y);
+                double angle  = std::atan2(y_comp, x_comp);
+                if (angle < 0) angle += 2.0 * M_PI;
+
+                int sector = static_cast<int>(angle / (2.0 * M_PI) * num_sectors);
+                sector     = std::min(sector, num_sectors - 1);
+
+                if (sector == i) {
+                    sector_sum_r += v_proj.norm();
+                    sector_point_count++;
+                }
+            }
+
+            if (sector_point_count > 0) {
+                radii_by_sector.push_back(sector_sum_r / sector_point_count);
+            }
+        }
+    }
+
+    // 计算各扇区平均半径的变异系数
+    if (radii_by_sector.size() > 2) {
+        double mean_r = 0.0;
+        for (double r : radii_by_sector)
+            mean_r += r;
+        mean_r /= radii_by_sector.size();
+
+        double var_r = 0.0;
+        for (double r : radii_by_sector) {
+            var_r += (r - mean_r) * (r - mean_r);
+        }
+        var_r /= radii_by_sector.size();
+        double std_r = std::sqrt(var_r);
+        double cv    = std_r / mean_r;
+
+        // 如果各扇区半径变化太大（>20%），说明不是真圆柱
+        if (cv > 0.2) {
+            return coverage_ratio * (1.0 - cv); // 根据变异系数降低评分
+        }
+    }
+
+    // **最终圆度评分：覆盖率加权**
+    // 覆盖率50%给0.5分，100%给1.0分
+    double final_circularity = 0.5 + coverage_ratio * 0.5;
+
+    return std::min(1.0, final_circularity);
 }
 
 /// @brief 标准圆柱拟合
@@ -130,74 +379,119 @@ void CylinderFitter::estimateNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                                     pcl::PointCloud<pcl::Normal>::Ptr   normals) {
 
-    // init
+    // 输入验证
+    if (cloud->empty() || normals->empty()) {
+        ROS_ERROR("Input cloud or normals is empty!");
+        cylinder_model_.valid = false;
+        return;
+    }
+
+    if (cloud->size() != normals->size()) {
+        ROS_ERROR("Cloud and normals size mismatch!");
+        cylinder_model_.valid = false;
+        return;
+    }
+
+    // 去除墙面点（支持多墙面）
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+    removeWalls(cloud, cloud_filtered);
+
+    if (cloud_filtered->empty()) {
+        ROS_WARN("No valid points left after wall removal.");
+        cylinder_model_.valid = false;
+        return;
+    }
+
+    // 同步提取对应的法向量
+    pcl::PointCloud<pcl::Normal>::Ptr normals_filtered(new pcl::PointCloud<pcl::Normal>);
+    if (!extractCorrespondingNormals(cloud, normals, cloud_filtered, normals_filtered)) {
+        ROS_ERROR("Failed to extract corresponding normals.");
+        cylinder_model_.valid = false;
+        return;
+    }
+
+    // 初始化
     cylinder_model_.valid = false;
     cylinder_model_.inliers->clear();
     const auto &fp = fitting_params_;
 
+    // 配置圆柱拟合分割器
     pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> seg;
     seg.setOptimizeCoefficients(true);
     seg.setModelType(pcl::SACMODEL_CYLINDER);
     seg.setMethodType(pcl::SAC_RANSAC);
     seg.setNormalDistanceWeight(0.1);
-    seg.setMaxIterations(20000);
-    seg.setDistanceThreshold(0.02);
-    seg.setRadiusLimits(fp.min_radius_m, fp.max_radius_m); // 半径范围
-    seg.setInputCloud(cloud);
-    seg.setInputNormals(normals);
+    seg.setMaxIterations(10000);     // 适当减少，提高效率
+    seg.setDistanceThreshold(0.015); // 更严格的距离阈值
+    seg.setRadiusLimits(fp.min_radius_m, fp.max_radius_m);
+
+    // **关键修复：使用过滤后的点云和法向量**
+    seg.setInputCloud(cloud_filtered);
+    seg.setInputNormals(normals_filtered);
 
     // 强制轴线接近垂直
     seg.setAxis(Eigen::Vector3f(0, 0, 1));
-    seg.setEpsAngle(10.0f * M_PI / 180.0f); // 最大允许偏差10°
+    seg.setEpsAngle(10.0f * M_PI / 180.0f);
 
     pcl::ModelCoefficients::Ptr coefficients_cylinder(new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr      inliers_cylinder(new pcl::PointIndices);
     seg.segment(*inliers_cylinder, *coefficients_cylinder);
 
     if (inliers_cylinder->indices.empty()) {
-        ROS_WARN("No cylinder found.");
+        ROS_WARN("No cylinder found in filtered cloud.");
         cylinder_model_.valid = false;
         return;
     }
 
-    // 数量与比例
+    // 计算内点统计（基于过滤后的点云）
     size_t inlier_count = inliers_cylinder->indices.size();
-    double inlier_ratio = (double)inlier_count / (double)cloud->size();
+    double inlier_ratio = (double)inlier_count / (double)cloud_filtered->size();
+
+    // **早期拒绝：内点数太少，可能没有圆柱**
+    if (inlier_count < (size_t)fp.min_inliers) {
+        ROS_WARN("Inlier count too low (%zu < %d), likely no cylinder present.", inlier_count, fp.min_inliers);
+        cylinder_model_.valid = false;
+        return;
+    }
 
     // 提取内点
     pcl::ExtractIndices<pcl::PointXYZ> extract;
-    extract.setInputCloud(cloud);
+    extract.setInputCloud(cloud_filtered);
     extract.setIndices(inliers_cylinder);
     extract.setNegative(false);
     extract.filter(*cylinder_model_.inliers);
 
-    // 半径优化
-    // 将内点投影到 XY 平面（垂直截面），计算最大外接圆半径
+    // ===== 圆柱几何参数计算 =====
     Eigen::Vector3f fitted_axis(coefficients_cylinder->values[3], coefficients_cylinder->values[4],
                                 coefficients_cylinder->values[5]);
     fitted_axis.normalize();
-    Eigen::Vector3f proj_plane_normal = fitted_axis; // 投影平面法向量
+
     Eigen::Vector3f proj_center(coefficients_cylinder->values[0], coefficients_cylinder->values[1],
                                 coefficients_cylinder->values[2]);
 
+    // 半径统计
     double              max_r = 0.0;
+    double              min_r = std::numeric_limits<double>::max();
     double              sum_r = 0.0;
     std::vector<double> radii;
     radii.reserve(cylinder_model_.inliers->size());
 
     for (const auto &p : cylinder_model_.inliers->points) {
         Eigen::Vector3f pt(p.x, p.y, p.z);
-        // 投影到截面（垂直轴向）
         Eigen::Vector3f v      = pt - proj_center;
         Eigen::Vector3f v_proj = v - (v.dot(fitted_axis)) * fitted_axis;
         double          r      = v_proj.norm();
+
         radii.push_back(r);
         sum_r += r;
-        if (r > max_r) max_r = r;
+        max_r = std::max(max_r, r);
+        min_r = std::min(min_r, r);
     }
 
     double mean_r = sum_r / (double)radii.size();
-    double var_r  = 0.0;
+
+    // 计算标准差
+    double var_r = 0.0;
     for (const auto &r : radii) {
         var_r += (r - mean_r) * (r - mean_r);
     }
@@ -205,10 +499,15 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     double std_r          = std::sqrt(var_r);
     double radial_rel_std = std_r / mean_r;
 
-    // 计算高度范围
+    // 径向极差
+    double radial_range       = max_r - min_r;
+    double radial_range_ratio = radial_range / mean_r;
+
+    // 高度计算
     Eigen::Vector3f axis_norm = fitted_axis.normalized();
     double          min_proj  = std::numeric_limits<double>::max();
     double          max_proj  = std::numeric_limits<double>::lowest();
+
     for (const auto &p : cylinder_model_.inliers->points) {
         Eigen::Vector3f pt(p.x, p.y, p.z);
         double          proj = (pt - proj_center).dot(axis_norm);
@@ -217,28 +516,75 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     }
     double cylinder_height = max_proj - min_proj;
 
-    // 模型数据判断
-    ROS_INFO("Inlier count: %zu[%d-%d], ratio: %.4f[%.4f,%.4f], height: %.2f m[%.2f,~], radius: %.3f m[%.3f,%.3f], "
-             "radial_rel_std: %.4f[%.4f,%.4f]",
-             inlier_count, fp.min_inliers, fp.max_inliers, inlier_ratio, fp.min_inlier_ratio, fp.max_inlier_ratio,
-             cylinder_height, fp.min_height_m, mean_r, fp.min_radius_m, fp.max_radius_m, radial_rel_std,
-             fp.min_radial_rel_std, fp.max_radial_rel_std);
+    // 长宽比
+    double aspect_ratio = cylinder_height / (2.0 * mean_r);
 
-    if (inlier_count < (size_t)fp.min_inliers || inlier_count > (size_t)fp.max_inliers ||
-        inlier_ratio < fp.min_inlier_ratio || inlier_ratio > fp.max_inlier_ratio || cylinder_height < fp.min_height_m ||
-        mean_r < fp.min_radius_m || mean_r > fp.max_radius_m || radial_rel_std < fp.min_radial_rel_std ||
-        radial_rel_std > fp.max_radial_rel_std) {
-        ROS_ERROR("Fitted cylinder model did not meet quality criteria.");
+    // 圆度检查
+    double circularity = calculateCircularity(cylinder_model_.inliers, proj_center, fitted_axis, mean_r);
+
+    // ===== 详细日志输出 =====
+    ROS_INFO("========== Cylinder Validation ==========");
+    ROS_INFO("Inliers:          %zu [%d-%d] %s", inlier_count, fp.min_inliers, fp.max_inliers,
+             (inlier_count >= (size_t)fp.min_inliers && inlier_count <= (size_t)fp.max_inliers) ? "ok" : "false");
+    ROS_INFO("Inlier ratio:     %.4f [%.4f-%.4f] %s", inlier_ratio, fp.min_inlier_ratio, fp.max_inlier_ratio,
+             (inlier_ratio >= fp.min_inlier_ratio && inlier_ratio <= fp.max_inlier_ratio) ? "ok" : "false");
+    ROS_INFO("Height:           %.2f m [%.2f-∞] %s", cylinder_height, fp.min_height_m,
+             (cylinder_height >= fp.min_height_m) ? "ok" : "false");
+    ROS_INFO("Radius:           %.3f m [%.3f-%.3f] %s", mean_r, fp.min_radius_m, fp.max_radius_m,
+             (mean_r >= fp.min_radius_m && mean_r <= fp.max_radius_m) ? "ok" : "false");
+    ROS_INFO("Radial rel std:   %.4f [%.4f-%.4f] %s", radial_rel_std, fp.min_radial_rel_std, fp.max_radial_rel_std,
+             (radial_rel_std >= fp.min_radial_rel_std && radial_rel_std <= fp.max_radial_rel_std) ? "ok" : "false");
+    ROS_INFO("Radial range:     %.4f (%.1f%% of radius) [<30%%] %s", radial_range, radial_range_ratio * 100.0,
+             (radial_range_ratio <= 0.3) ? "ok" : "false");
+    ROS_INFO("Aspect ratio:     %.2f (H/D) [>1.5] %s", aspect_ratio, (aspect_ratio >= 1.5) ? "ok" : "false");
+    ROS_INFO("Circularity:      %.4f [>0.15] %s", circularity, (circularity >= 0.15) ? "ok" : "false");
+    ROS_INFO("=========================================");
+
+    // ===== 综合验证条件 =====
+    bool        valid = true;
+    std::string reject_reason;
+
+    if (inlier_count < (size_t)fp.min_inliers || inlier_count > (size_t)fp.max_inliers) {
+        valid         = false;
+        reject_reason = "Inlier count out of range";
+    } else if (inlier_ratio < fp.min_inlier_ratio || inlier_ratio > fp.max_inlier_ratio) {
+        valid         = false;
+        reject_reason = "Inlier ratio out of range";
+    } else if (cylinder_height < fp.min_height_m) {
+        valid         = false;
+        reject_reason = "Height too small";
+    } else if (mean_r < fp.min_radius_m || mean_r > fp.max_radius_m) {
+        valid         = false;
+        reject_reason = "Radius out of range";
+    } else if (radial_rel_std < fp.min_radial_rel_std || radial_rel_std > fp.max_radial_rel_std) {
+        valid         = false;
+        reject_reason = "Radial relative std out of range";
+    } else if (radial_range_ratio > 0.3) {
+        valid         = false;
+        reject_reason = "Radial range too large (not circular)";
+    } else if (aspect_ratio < 1.5) {
+        valid         = false;
+        reject_reason = "Aspect ratio too small (too flat)";
+    } else if (circularity < 0.15) {
+        valid         = false;
+        reject_reason = "Circularity too low (not round enough)";
+    }
+
+    if (!valid) {
+        ROS_ERROR("Cylinder REJECTED: %s", reject_reason.c_str());
+        cylinder_model_.valid = false;
         cylinder_model_.inliers->clear();
         return;
     }
+
+    // ===== 构建圆柱模型 =====
     cylinder_model_.valid         = true;
     cylinder_model_.radius        = mean_r;
     cylinder_model_.bottom_center = proj_center + min_proj * axis_norm;
     cylinder_model_.top_center    = proj_center + max_proj * axis_norm;
     cylinder_model_.geo_center    = 0.5f * (cylinder_model_.bottom_center + cylinder_model_.top_center);
-    cylinder_model_.axis          = axis_norm;       // 保存归一化轴向
-    cylinder_model_.height        = cylinder_height; // 米
+    cylinder_model_.axis          = axis_norm;
+    cylinder_model_.height        = cylinder_height;
 
     // 强制轴向朝向 +Z
     if (cylinder_model_.axis.z() < 0.0f) {
@@ -246,16 +592,20 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
         std::swap(cylinder_model_.bottom_center, cylinder_model_.top_center);
         cylinder_model_.geo_center = 0.5f * (cylinder_model_.bottom_center + cylinder_model_.top_center);
     }
-    cylinder_model_.valid = true;
 
-    std::cout << "圆柱检测（优化半径）:\n"
+    // ===== 成功输出 =====
+    ROS_INFO("========== Cylinder ACCEPTED ==========");
+    std::cout << "圆柱检测成功:\n"
               << "  底面中心: [" << cylinder_model_.bottom_center.transpose() << "]\n"
               << "  几何中心: [" << cylinder_model_.geo_center.transpose() << "]\n"
               << "  顶面中心: [" << cylinder_model_.top_center.transpose() << "]\n"
-              << "  轴:   [" << cylinder_model_.axis.transpose() << "]\n"
-              << "  半径: " << cylinder_model_.radius << "\n"
-              << "  高度: " << cylinder_model_.height << "\n"
-              << "  内点数: " << inliers_cylinder->indices.size() << " points\n";
+              << "  轴向:     [" << cylinder_model_.axis.transpose() << "]\n"
+              << "  半径:     " << cylinder_model_.radius << " m\n"
+              << "  高度:     " << cylinder_model_.height << " m\n"
+              << "  内点数:   " << inlier_count << "\n"
+              << "  圆度:     " << circularity << "\n"
+              << "  长宽比:   " << aspect_ratio << "\n";
+    ROS_INFO("=======================================");
 }
 
 /// @brief 对标准圆柱表面切片计算
@@ -307,7 +657,11 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
 
         std::vector<Eigen::Vector3f> layer_centers_mm; // 收集该高度层的切片中心
 
-        for (int j = 0; j < num_width_slices; ++j) {
+        // S 型顺序：偶数层J正向，奇数层J反向
+        for (int j_it = 0; j_it < num_width_slices; ++j_it) {
+
+            int j = (i % 2 == 0) ? j_it : (num_width_slices - 1 - j_it);
+
             double theta = min_theta + (j + 0.5) * (angle_range / num_width_slices);
 
             Eigen::Vector3f axial_pos_mm    = bottom_center_mm + h_mm * z;
@@ -467,6 +821,9 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
             sd.id               = slice_count++;
             sd.center_mm        = slice_center_mm; //切片表面中心
             sd.circle_center_mm = axial_pos_mm;    //轴线上该高度层中心
+            // sd.angle_deg        = theta * 180.0 / M_PI;中心角 theta
+            // 该切片的角度跨度 (总角度 / 宽度切片数)
+            sd.angle_deg = (angle_range / num_width_slices) * 180.0 / M_PI;
             slices_data_.push_back(std::move(sd));
         }
 

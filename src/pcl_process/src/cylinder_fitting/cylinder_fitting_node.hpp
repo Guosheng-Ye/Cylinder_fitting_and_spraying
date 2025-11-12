@@ -13,6 +13,7 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <random>
 #include <ros/ros.h>
 #include <string>
 #include <thread>
@@ -28,13 +29,17 @@ public:
     struct CylinderFitterParams {
         int    min_inliers{300};         // 最小内点数
         int    max_inliers{600};         // 最大内点数
-        double min_inlier_ratio{0.020};  // 最小内点比例
-        double max_inlier_ratio{0.060};  // 最大内点比例
+        double min_inlier_ratio{0.02};   // 最小内点比例
+        double max_inlier_ratio{0.50};   // 最大内点比例
         double min_height_m{1.00};       // 最小高度（米）
-        double min_radius_m{0.2};        // 最小半径（米）
-        double max_radius_m{1.0};        // 最大半径(米)
-        double min_radial_rel_std{0.01}; // 最小径向相对标准差
-        double max_radial_rel_std{0.02}; // 最大径向相对标准差
+        double min_radius_m{0.30};       // 最小半径（米）
+        double max_radius_m{0.40};       // 最大半径(米)
+        double min_radial_rel_std{0.00}; // 最小径向相对标准差
+        double max_radial_rel_std{0.15}; // 最大径向相对标准差
+
+        // 切片参数
+        double slice_height_{600.00}; //切片高度（毫米）
+        double slice_weight_{600.00}; //切片宽度（毫米）
     };
     void                        setFittingParams(const CylinderFitterParams &p) { fitting_params_ = p; }
     const CylinderFitterParams &fittingParams() const { return fitting_params_; }
@@ -45,6 +50,7 @@ public:
         int             angular_index{0}; // 角度层索引 j
         Eigen::Vector3f center_mm;        // 切片中心坐标 (mm)
         Eigen::Vector3f circle_center_mm; // 该高度平面圆心(轴线上点) (mm)
+        double          angle_deg{0.0};   // 切片对应扇形角度（度）
     };
 
     /// @brief 可视化绘制控制项
@@ -54,7 +60,6 @@ public:
         bool height_rings_{false}; // 高度层环线
         bool print_centers_{true}; // 切片中心点
     };
-    /// @brief 切片数据
 
     void                          setSliceVizOptions(const SliceVizOptions &opt) { slice_opts_ = opt; }
     SliceVizOptions              &sliceOptions() { return slice_opts_; }
@@ -85,6 +90,12 @@ private:
     /// @param normals 法线
     void estimateNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::PointCloud<pcl::Normal>::Ptr normals);
 
+    /// @brief 去除墙面点
+    /// @param cloud 点云
+    /// @param cloud_filtered 输出点云
+    /// @param angle_threshold 角度阈值（度）
+    void removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered,
+                     double angle_threshold, double distance_threshold, int max_iterations);
     /// @brief 圆柱拟合
     /// @param cloud 点云
     /// @param normals 法线
@@ -104,6 +115,14 @@ private:
     /// @param slice_width 切片宽度
     void sliceCylinder(double angle_range_deg, double slice_height_mm, double slice_width_mm);
 
+    bool extractCorrespondingNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_original,
+                                     pcl::PointCloud<pcl::Normal>::Ptr   normals_original,
+                                     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered,
+                                     pcl::PointCloud<pcl::Normal>::Ptr   normals_filtered);
+
+    double calculateCircularity(pcl::PointCloud<pcl::PointXYZ>::Ptr inliers, const Eigen::Vector3f &center,
+                                const Eigen::Vector3f &axis, double radius);
+
     /// @brief 可视化
     /// @param cloud 点云
     /// @param cylinder_points 圆柱内点
@@ -119,7 +138,7 @@ private:
 
 private:
     std::string                            pcd_path_;                                    // PCD文件路径
-    pcl::visualization::PCLVisualizer::Ptr viewer_;                                      //可视化器
+    pcl::visualization::PCLVisualizer::Ptr viewer_;                                      // 可视化器
     pcl::PointCloud<pcl::PointXYZ>::Ptr    cloud_{new pcl::PointCloud<pcl::PointXYZ>()}; // 点云数据
 
     // 非阻塞绘制
