@@ -23,6 +23,7 @@ find_package(PCL REQUIRED)
 add_message_files(
     FILES
     TargetPose.msg
+    TargetInfo.msg
     TargetPoseList.msg
     # CylinderSlice.msg
     # CylinderSliceArray.msg
@@ -50,6 +51,7 @@ catkin_package(
     src/rslidar_process
     src/pcd_viewer
     src/tests
+    src/tf
     LIBRARIES
     cylinder_fitting_node
     rslidar_process
@@ -63,6 +65,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cylinder_fitting
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rslidar_process
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pcd_viewer
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/tf
 )
 
 link_directories(${PCL_LIBRARY_DIRS})
