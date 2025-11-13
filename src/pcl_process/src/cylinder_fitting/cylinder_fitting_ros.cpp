@@ -56,7 +56,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 pose.x                                = pos_spray_center2base.x() / 1000.0; // mm -> m
                 pose.y                                = pos_spray_center2base.y() / 1000.0;
                 pose.z                                = pos_spray_center2base.z() / 1000.0;
-                pose.z += 0.2; // 喷涂高度提升 200mm
+                pose.z += 1.7; // 喷涂高度提升 1700mm
                 ROS_WARN(" Target ID: %d, Spray Position in Base (mm): [%.2f, %.2f, %.2f]", pose.id, pose.x, pose.y,
                          pose.z);
 
@@ -68,7 +68,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 ti_msg.circle_center[0] = pos_circle_center2base.x();
                 ti_msg.circle_center[1] = pos_circle_center2base.y();
                 ti_msg.circle_center[2] = pos_circle_center2base.z();
-                ti_msg.circle_center[2] += 200.0; // 圆柱中心提升200mm
+                ti_msg.circle_center[2] += 1700.0; // 圆柱中心提升1700mm
 
                 // 复用pose的喷涂中心变量
                 ti_msg.spray_center[0] = pose.x * 1000.0; // m -> mm
