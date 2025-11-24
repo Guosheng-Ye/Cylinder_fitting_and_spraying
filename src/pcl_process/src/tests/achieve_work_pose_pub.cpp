@@ -26,6 +26,7 @@ int main(int argc, char **argv) {
 
     while (ros::ok()) {
         toggle = !toggle;
+        // toggle = true;
         achieve_pub.publish(toggle);
         ROS_INFO("Published /achieve_work_pose: %s", toggle ? "true" : "false");
         ros::spinOnce();
