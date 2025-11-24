@@ -39,7 +39,9 @@ public:
 
         // 切片参数
         double slice_height_{600.00}; //切片高度（毫米）
-        double slice_weight_{600.00}; //切片宽度（毫米）
+        double slice_weight_{300.00}; //切片宽度（毫米）
+        // 工作面距离
+        double slice_distance_{1150}; // 工作面距离1150mm
     };
     void                        setFittingParams(const CylinderFitterParams &p) { fitting_params_ = p; }
     const CylinderFitterParams &fittingParams() const { return fitting_params_; }
@@ -68,7 +70,7 @@ public:
     const std::vector<SliceData> &slicesData() const { return slices_data_; } // 获取切片数据
 
 public:
-    int run_with_pcd();
+    // int run_with_pcd();
     int run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_input);
 
     /// @brief 获取切片结果

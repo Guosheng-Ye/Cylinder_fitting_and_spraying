@@ -13,63 +13,6 @@ CylinderFitter::~CylinderFitter() {
     running_ = false;
     if (viewer_thread_.joinable()) viewer_thread_.join();
 }
-/// @brief PCD 数据文件进行圆柱拟合
-/// @return
-int CylinderFitter::run_with_pcd() {
-    if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_path_, *cloud_) == -1) {
-        PCL_ERROR("Couldn't read file %s\n", pcd_path_.c_str());
-        return -1;
-    }
-    ROS_INFO("Loaded %zu points from %s", cloud_->size(), pcd_path_.c_str());
-
-    // 角度过滤
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered_angle(new pcl::PointCloud<pcl::PointXYZ>);
-    const double                        angle_limit = 30.0 * M_PI / 180.0;
-
-    for (const auto &p : cloud_->points) {
-        if (std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z)) continue;
-        if (p.x <= 0) continue;
-        double angle = std::atan2(p.y, p.x);
-        if (std::abs(angle) <= angle_limit) {
-            cloud_filtered_angle->push_back(p);
-        }
-    }
-    ROS_INFO("After angle filtering: %zu points remain.", cloud_filtered_angle->size());
-    cloud_ = cloud_filtered_angle;
-
-    std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-    // 法线估计
-    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-    estimateNormals(cloud_, normals);
-
-    // 圆柱拟合
-    fitCylinderPCL(cloud_, normals);
-
-    if (!hasModel()) {
-        ROS_WARN("No valid cylinder model found; skipping slicing.");
-        return -1;
-    }
-
-    std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> time_span  = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);
-    ROS_INFO("Cylinder fitting time: %f seconds.", time_span.count());
-
-    // 可视化
-    visualizeResults();
-
-    // 计算圆柱高度并调用切片
-    if (hasModel()) {
-        std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
-        sliceCylinder(180.0, 500.0, 300.0);
-        std::chrono::steady_clock::time_point t4 = std::chrono::steady_clock::now();
-        std::chrono::duration<double> slice_time = std::chrono::duration_cast<std::chrono::duration<double>>(t4 - t3);
-        ROS_INFO("Slice time: %f seconds.", slice_time.count());
-    }
-
-    /// 打印数值结果
-    printResults();
-    return 0;
-}
 
 /// @brief RSLidar 点云进行圆柱拟合
 /// @param cloud_input
@@ -88,12 +31,13 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
 
     // 圆柱拟合
     const auto &fp = fitting_params_;
-    ROS_INFO(
-        "Fitting params: min_inliers=%d, max_inliers=%d, min_inlier_ratio=%.4f, max_inlier_ratio=%.4f, "
-        "min_height_m=%.2f, min_radius_m=%.2f, max_radius_m=%.2f, min_radial_rel_std=%.4f, max_radial_rel_std=%.4f",
-        "slice_height=%.2f, slice_weight=%.2f", fp.min_inliers, fp.max_inliers, fp.min_inlier_ratio,
-        fp.max_inlier_ratio, fp.min_height_m, fp.min_radius_m, fp.max_radius_m, fp.min_radial_rel_std,
-        fp.max_radial_rel_std, fp.slice_height_, fp.slice_weight_);
+    ROS_WARN("Fitting params: min_inliers=%d, max_inliers=%d, min_inlier_ratio=%.4f, max_inlier_ratio=%.4f, "
+             "min_height_m=%.2f, min_radius_m=%.2f, max_radius_m=%.2f, min_radial_rel_std=%.4f, max_radial_rel_std=%.4f"
+             "slice_height=%.2f, slice_weight=%.2f, work_distance:%.2f",
+             fp.min_inliers, fp.max_inliers, fp.min_inlier_ratio, fp.max_inlier_ratio, fp.min_height_m, fp.min_radius_m,
+             fp.max_radius_m, fp.min_radial_rel_std, fp.max_radial_rel_std, fp.slice_height_, fp.slice_weight_,
+             fp.slice_distance_);
+
     fitCylinderPCL(cloud_, normals);
 
     if (!hasModel()) {
@@ -613,7 +557,9 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 /// @param slice_width_mm 切片宽度（毫米）
 void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_mm, double slice_width_mm) {
     if (!hasModel()) return;
-
+    ROS_WARN("Starting cylinder slicing======ANGEL_RANGE_DEG:[%.3F], SLICE_HEIGHT_MM:[%.3F], SLICE_WIDTH_MM:[%.3F], "
+             "WORK_DIS:[%.3F]",
+             angle_range_deg, slice_height_mm, slice_width_mm, fitting_params_.slice_distance_);
     const auto &opt = slice_opts_;
 
     Eigen::Vector3f bottom_center_mm = cylinder_model_.bottom_center * 1000.0f;
@@ -820,11 +766,11 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
             sd.id               = slice_count++;
             sd.center_mm        = slice_center_mm; //切片表面中心
             sd.circle_center_mm = axial_pos_mm;    //轴线上该高度层中心
-            // ROS_INFO("[Slice] Slice ID %d: Center at [%.3f, %.3f, %.3f] mm", sd.id, sd.center_mm.x(), sd.center_mm.y(),
+            // ROS_INFO("[Slice] Slice ID %d: Center at [%.3f, %.3f, %.3f] mm", sd.id, sd.center_mm.x(),
+            // sd.center_mm.y(),
             //          sd.center_mm.z());
 
             //计算工作点 sd.work_mm
-            const double WORK_OFFSET_MM = 1150.0;
             // 计算从圆心 C 指向表面点 A 的向量 v = A - C
             Eigen::Vector3f v    = sd.center_mm - sd.circle_center_mm;
             double          norm = v.norm();
@@ -834,12 +780,12 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                 ROS_WARN("[Slice] Slice ID %d: Center coincides with circle center, fallback offset applied.", sd.id);
                 // 这里使用了一个简单但可能不适用于所有情况的退化偏移，
                 // 实际使用时需根据机器人坐标系确定更安全的默认方向。
-                sd.work_mm = sd.center_mm + Eigen::Vector3f(WORK_OFFSET_MM, 0.0f, 0.0f);
+                sd.work_mm = sd.center_mm + Eigen::Vector3f(fitting_params_.slice_distance_, 0.0f, 0.0f);
             } else {
                 // 2. 计算单位方向向量 dir
                 Eigen::Vector3f dir = v / norm;
                 // 3. 计算工作点 B = A + dir * offset
-                sd.work_mm = sd.center_mm + dir * WORK_OFFSET_MM;
+                sd.work_mm = sd.center_mm + dir * fitting_params_.slice_distance_;
             }
 
             { // 可视化工作点
@@ -1113,3 +1059,63 @@ void CylinderFitter::viewerThread() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
+
+/*
+/// @brief PCD 数据文件进行圆柱拟合
+/// @return
+ int CylinderFitter::run_with_pcd() {
+    if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_path_, *cloud_) == -1) {
+        PCL_ERROR("Couldn't read file %s\n", pcd_path_.c_str());
+        return -1;
+    }
+    ROS_INFO("Loaded %zu points from %s", cloud_->size(), pcd_path_.c_str());
+
+    // 角度过滤
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered_angle(new pcl::PointCloud<pcl::PointXYZ>);
+    const double                        angle_limit = 30.0 * M_PI / 180.0;
+
+    for (const auto &p : cloud_->points) {
+        if (std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z)) continue;
+        if (p.x <= 0) continue;
+        double angle = std::atan2(p.y, p.x);
+        if (std::abs(angle) <= angle_limit) {
+            cloud_filtered_angle->push_back(p);
+        }
+    }
+    ROS_INFO("After angle filtering: %zu points remain.", cloud_filtered_angle->size());
+    cloud_ = cloud_filtered_angle;
+
+    std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
+    // 法线估计
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+    estimateNormals(cloud_, normals);
+
+    // 圆柱拟合
+    fitCylinderPCL(cloud_, normals);
+
+    if (!hasModel()) {
+        ROS_WARN("No valid cylinder model found; skipping slicing.");
+        return -1;
+    }
+
+    std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> time_span  = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);
+    ROS_INFO("Cylinder fitting time: %f seconds.", time_span.count());
+
+    // 可视化
+    visualizeResults();
+
+    // 计算圆柱高度并调用切片
+    if (hasModel()) {
+        std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
+        sliceCylinder(180.0, fitting_params_.slice_height_, fitting_params_.slice_weight_);
+        std::chrono::steady_clock::time_point t4 = std::chrono::steady_clock::now();
+        std::chrono::duration<double> slice_time = std::chrono::duration_cast<std::chrono::duration<double>>(t4 - t3);
+        ROS_INFO("Slice time: %f seconds.", slice_time.count());
+    }
+
+    /// 打印数值结果
+    printResults();
+    return 0;
+}
+*/

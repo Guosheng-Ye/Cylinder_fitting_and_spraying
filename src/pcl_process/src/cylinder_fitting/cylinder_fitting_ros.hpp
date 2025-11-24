@@ -8,10 +8,13 @@
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Float64.h>
 
 #include "lidar2flexed_arm.hpp"
+#include <pcl_process/ProcessParam.h>
 #include <pcl_process/TargetInfo.h>
 #include <pcl_process/TargetPoseList.h>
+
 class CylinderFittingROS {
 public:
     CylinderFittingROS(ros::NodeHandle &nh)
@@ -25,6 +28,10 @@ public:
         lidar_data_sub_ = nh.subscribe("/rslidar_filtered", 1, &CylinderFittingROS::cloudCallback, this);
         ROS_INFO("CylinderFittingROS: Waiting for filtered point clouds...");
 
+        // 工艺参数订阅
+        process_param_sub_ = nh.subscribe("/process_param", 1, &CylinderFittingROS::processParamsCallback, this);
+        ROS_INFO("CylinderFittingROS: Waiting for process parameters...");
+
         // 曲臂切片目标位姿发布
         target_pose_pub_ = nh.advertise<pcl_process::TargetPoseList>("/target_pose_list", 1, true);
 
@@ -33,21 +40,27 @@ public:
     }
 
 public:
-    void setOption();
+    void setOption(const float distance, const float width, const float height);
 
 private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
     void mainCtlCallback(const std_msgs::Bool &msg);
-    void publishTargetPose();
+    void processParamsCallback(const pcl_process::ProcessParam &msg);
 
 private:
-    ros::Subscriber                 lidar_data_sub_; // 雷达数据订阅
-    ros::Subscriber                 main_ctl_sub_;   //主控命令订阅
-    std::shared_ptr<CylinderFitter> fitter_;         // 圆柱拟合
+    ros::Subscriber                 lidar_data_sub_;    // 雷达数据订阅
+    ros::Subscriber                 main_ctl_sub_;      //主控命令订阅
+    ros::Subscriber                 process_param_sub_; //工艺参数订阅
+    std::shared_ptr<CylinderFitter> fitter_;            // 圆柱拟合
     std::atomic<bool>               processing_{false};
 
     ros::Publisher target_pose_pub_;       //曲臂切片目标位姿发布
     ros::Publisher spray_target_pose_pub_; //喷涂作业目标位姿发布
 
     std::shared_ptr<FlexedArmTF> tf_lidar2_base_; // 雷达到车辆基座坐标变换
+
+    // 记录历史值
+    double last_distance_ = -1.0;
+    double last_width_    = -1.0;
+    double last_height_   = -1.0;
 };

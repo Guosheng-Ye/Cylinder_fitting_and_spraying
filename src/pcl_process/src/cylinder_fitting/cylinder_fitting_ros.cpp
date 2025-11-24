@@ -273,7 +273,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
 
             // --- 统一 Z 轴工作高度约束定义 ---
             const double MIN_WORK_HEIGHT_MM = 2000.0; // Z 轴统一抬高的高度 (mm)
-            const double SPRAY_OFFSET_MM    = 1150.0; // 喷涂工作点偏移距离 (mm)
+            // const double SPRAY_OFFSET_MM    = 1150.0; // 喷涂工作点偏移距离 (mm)
 
             // 转换圆柱底部和顶部中心 (m -> mm) 到 Base 坐标系
             Eigen::Vector3d pos_bottom_center(fitter_->bottomCenter().x() * 1000.0,
@@ -419,11 +419,33 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
     }
 }
 
+void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam &msg) {
+    double distance = msg.distance;
+    double width    = msg.width;
+    double height   = msg.height;
+
+    // 是否有任何参数发生变化
+    bool changed = (distance != last_distance_) || (width != last_width_) || (height != last_height_);
+    if (changed) {
+        ROS_WARN("Process parameters changed: distance=%.2f (was %.2f), width=%.2f (was %.2f), height=%.2f (was %.2f)",
+                 distance, last_distance_, width, last_width_, height, last_height_);
+
+        // 更新历史值
+        last_distance_ = distance;
+        last_width_    = width;
+        last_height_   = height;
+
+        // 调用 setOption 更新配置
+        setOption(distance, width, height);
+    } else {
+        ROS_DEBUG("Process parameters unchanged, skipping setOption call.");
+    }
+}
+
 void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool &msg) {
     bool prev = processing_.load(std::memory_order_acquire);
     bool next = msg.data;
     if (prev == next) {
-        // 状态未变化，不重复打印
         return;
     }
     if (next) {
@@ -435,7 +457,7 @@ void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool &msg) {
     }
 }
 
-void CylinderFittingROS::setOption() {
+void CylinderFittingROS::setOption(const float distance, const float width, const float height) {
 
     this->fitter_->sliceOptions().surface_       = false; // 弧形面网格
     this->fitter_->sliceOptions().border_        = false; // 切片边框线
@@ -443,18 +465,20 @@ void CylinderFittingROS::setOption() {
     this->fitter_->sliceOptions().print_centers_ = true;  // 切片中心点
 
     this->fitter_->setFittingParams(CylinderFitter::CylinderFitterParams{
-        .min_inliers        = 300,    // 最小内点数
-        .max_inliers        = 600,    // 最大内点数
-        .min_inlier_ratio   = 0.02,   // 最小内点比例
-        .max_inlier_ratio   = 0.50,   // 最大内点比例
-        .min_height_m       = 1.00,   // 最小高度（米）
-        .min_radius_m       = 0.30,   // 最小半径（米）
-        .max_radius_m       = 0.40,   // 最大半径(米)
-        .min_radial_rel_std = 0.00,   // 最小径向相对标准差
-        .max_radial_rel_std = 0.15,   // 最大径向相对标准差
-        .slice_height_      = 600.00, // 切片高度（毫米）
-        .slice_weight_      = 300.00, // 切片宽度（毫米）
+        .min_inliers        = 300,     // 最小内点数
+        .max_inliers        = 600,     // 最大内点数
+        .min_inlier_ratio   = 0.02,    // 最小内点比例
+        .max_inlier_ratio   = 0.50,    // 最大内点比例
+        .min_height_m       = 1.00,    // 最小高度（米）
+        .min_radius_m       = 0.30,    // 最小半径（米）
+        .max_radius_m       = 0.40,    // 最大半径(米)
+        .min_radial_rel_std = 0.00,    // 最小径向相对标准差
+        .max_radial_rel_std = 0.15,    // 最大径向相对标准差
+        .slice_height_      = height,  // 切片高度（毫米）
+        .slice_weight_      = width,   // 切片宽度（毫米）
+        .slice_distance_    = distance // 切片间距（毫米）
     });
+    ROS_WARN("Cylinder fitting parameters have been set.");
 }
 
 int main(int argc, char **argv) {
@@ -463,7 +487,7 @@ int main(int argc, char **argv) {
 
     ROS_INFO("CylinderFittingROS node started, waiting for filtered point clouds and main control commands...");
     CylinderFittingROS node(nh);
-    node.setOption();
+    node.setOption(1150, 300, 600);
 
     ros::spin();
     return 0;
