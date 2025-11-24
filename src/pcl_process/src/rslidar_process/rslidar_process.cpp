@@ -17,9 +17,9 @@ void RSLidarFilterNode::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &ms
     if (cloud->empty()) return;
 
     // ============== 角度过滤（侧向安装：+Y 为前向，+X 为右侧） ==============
-    // 目标：保留相对于 +Y 前向左右各30度（总 60 度扇区）内且位于传感器前方 (y>0) 的点。
+    // 目标：保留相对于 +Y 前向左右各20度（总 40 度扇区）内且位于传感器前方 (y>0) 的点。
     pcl::PointCloud<pcl::PointXYZI>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZI>);
-    const double                         angle_limit = 30.0 * M_PI / 180.0; // 弧度
+    const double                         angle_limit = 20.0 * M_PI / 180.0; // 弧度
 
     for (const auto &p : cloud->points) {
         if (std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z)) continue; // 跳过 NaN
