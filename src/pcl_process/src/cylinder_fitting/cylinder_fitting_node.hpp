@@ -50,6 +50,7 @@ public:
         int             angular_index{0}; // 角度层索引 j
         Eigen::Vector3f center_mm;        // 切片中心坐标 (mm)
         Eigen::Vector3f circle_center_mm; // 该高度平面圆心(轴线上点) (mm)
+        Eigen::Vector3f work_mm;          // 切片工作点 (mm)
         double          angle_deg{0.0};   // 切片对应扇形角度（度）
     };
 

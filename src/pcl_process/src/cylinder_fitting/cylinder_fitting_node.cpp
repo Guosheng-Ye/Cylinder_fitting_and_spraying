@@ -447,7 +447,6 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     size_t inlier_count = inliers_cylinder->indices.size();
     double inlier_ratio = (double)inlier_count / (double)cloud_filtered->size();
 
-    // **早期拒绝：内点数太少，可能没有圆柱**
     if (inlier_count < (size_t)fp.min_inliers) {
         ROS_WARN("Inlier count too low (%zu < %d), likely no cylinder present.", inlier_count, fp.min_inliers);
         cylinder_model_.valid = false;
@@ -720,15 +719,15 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
             {
                 std::lock_guard<std::mutex> lock(viewer_mutex_);
 
-                // 球
+                // 球（切片中心点）
                 viewer_->addSphere(pcl::PointXYZ(slice_center_mm.x() / 1000.0f, slice_center_mm.y() / 1000.0f,
                                                  slice_center_mm.z() / 1000.0f),
-                                   5.0 / 1000.0, 1.0, 0.5, 0.0, sphere_id);
+                                   10.0 / 1000.0, 0.0, 0.0, 1.0, sphere_id);
                 slice_shape_ids_.push_back(sphere_id);
 
                 // 文本
                 // std::ostringstream oss;
-                // oss << i << "," << j;
+                // oss << slice_center_mm.x();
                 // viewer_->addText3D(oss.str(),
                 //                    pcl::PointXYZ(slice_center_mm.x() / 1000.0f, slice_center_mm.y() / 1000.0f,
                 //                                  slice_center_mm.z() / 1000.0f),
@@ -821,7 +820,37 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
             sd.id               = slice_count++;
             sd.center_mm        = slice_center_mm; //切片表面中心
             sd.circle_center_mm = axial_pos_mm;    //轴线上该高度层中心
-            // sd.angle_deg        = theta * 180.0 / M_PI;中心角 theta
+            // ROS_INFO("[Slice] Slice ID %d: Center at [%.3f, %.3f, %.3f] mm", sd.id, sd.center_mm.x(), sd.center_mm.y(),
+            //          sd.center_mm.z());
+
+            //计算工作点 sd.work_mm
+            const double WORK_OFFSET_MM = 1150.0;
+            // 计算从圆心 C 指向表面点 A 的向量 v = A - C
+            Eigen::Vector3f v    = sd.center_mm - sd.circle_center_mm;
+            double          norm = v.norm();
+            if (norm < 1e-6) {
+                // 退化情况：如果圆心和表面点重合，通常不会发生，但作为安全措施
+                // 默认沿 X 轴负方向偏移
+                ROS_WARN("[Slice] Slice ID %d: Center coincides with circle center, fallback offset applied.", sd.id);
+                // 这里使用了一个简单但可能不适用于所有情况的退化偏移，
+                // 实际使用时需根据机器人坐标系确定更安全的默认方向。
+                sd.work_mm = sd.center_mm + Eigen::Vector3f(WORK_OFFSET_MM, 0.0f, 0.0f);
+            } else {
+                // 2. 计算单位方向向量 dir
+                Eigen::Vector3f dir = v / norm;
+                // 3. 计算工作点 B = A + dir * offset
+                sd.work_mm = sd.center_mm + dir * WORK_OFFSET_MM;
+            }
+
+            { // 可视化工作点
+                std::lock_guard<std::mutex> lock(viewer_mutex_);
+                viewer_->addSphere(
+                    pcl::PointXYZ(sd.work_mm.x() / 1000.0f, sd.work_mm.y() / 1000.0f, sd.work_mm.z() / 1000.0f),
+                    8.0 / 1000.0, 0.0, 1.0, 0.0,
+                    "slice_workpoint_" + std::to_string(sd.id)); // 绿色工作点
+                slice_shape_ids_.push_back("slice_workpoint_" + std::to_string(sd.id));
+            }
+
             // 该切片的角度跨度 (总角度 / 宽度切片数)
             sd.angle_deg = (angle_range / num_width_slices) * 180.0 / M_PI;
             slices_data_.push_back(std::move(sd));
@@ -879,11 +908,12 @@ void CylinderFitter::visualizeResults() {
     viewer_->addPointCloud<pcl::PointXYZ>(cloud_, white, "cloud");
 
     // 绿色内点
-    if (cylinder_points && !cylinder_points->empty()) {
-        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> green(cylinder_points, 0, 255, 0);
-        viewer_->addPointCloud<pcl::PointXYZ>(cylinder_points, green, "cylinder_points");
-        viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "cylinder_points");
-    }
+    // if (cylinder_points && !cylinder_points->empty()) {
+    //     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> green(cylinder_points, 0, 255, 0);
+    //     viewer_->addPointCloud<pcl::PointXYZ>(cylinder_points, green, "cylinder_points");
+    //     viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
+    //     "cylinder_points");
+    // }
 
     // 计算圆柱高度范围（内点沿轴方向投影）
     double          min_proj  = std::numeric_limits<double>::max();
@@ -953,8 +983,29 @@ void CylinderFitter::visualizeResults() {
     viewer_->addArrow(pcl::PointXYZ(end.x(), end.y(), end.z()), pcl::PointXYZ(start.x(), start.y(), start.z()), 1.0,
                       0.0, 0.0, false, "cylinder_axis");
 
+    // --- 可视化切片中心与工作点（包含连接线） ---
+    // int work_sphere_count = 0;
+    // for (const auto &slice : slices_data_) {
+    //     // 1. 工作点（work_mm）：蓝色球体
+    //     std::string work_sphere_id = "slice_work_" + std::to_string(work_sphere_count);
+    //     viewer_->addSphere(
+    //         pcl::PointXYZ(slice.work_mm.x() / 1000.0f, slice.work_mm.y() / 1000.0f, slice.work_mm.z() / 1000.0f),
+    //         0.010, 0.0, 0.0, 1.0, work_sphere_id); // 蓝色 (Blue: 0, 0, 1)
+
+    //     // 连接线：从表面中心（center_mm）到工作点（work_mm）
+    //     // 白色虚线，表示喷枪的轴线方向。
+    //     std::string connect_line_id = "slice_connect_" + std::to_string(work_sphere_count);
+    //     viewer_->addLine(
+    //         pcl::PointXYZ(slice.center_mm.x() / 1000.0f, slice.center_mm.y() / 1000.0f, slice.center_mm.z() /
+    //         1000.0f), pcl::PointXYZ(slice.work_mm.x() / 1000.0f, slice.work_mm.y() / 1000.0f, slice.work_mm.z() /
+    //         1000.0f), 1.0, 1.0, 1.0, connect_line_id); // 白色 (White: 1, 1, 1)
+
+    //     work_sphere_count++;
+    // }
+    // ---------------------------------------------
+
     // 源点到圆柱中点连线
-    Eigen::Vector3f source_point(0, 0, 0); // 假设原点为传感器位置
+    Eigen::Vector3f source_point(0, 0, 0);
     viewer_->addLine(
         pcl::PointXYZ(source_point.x(), source_point.y(), source_point.z()),
         pcl::PointXYZ(cylinder_model_.geo_center.x(), cylinder_model_.geo_center.y(), cylinder_model_.geo_center.z()),
@@ -971,6 +1022,13 @@ void CylinderFitter::visualizeResults() {
         pcl::PointXYZ(source_point.x(), source_point.y(), source_point.z()),
         pcl::PointXYZ(cylinder_model_.top_center.x(), cylinder_model_.top_center.y(), cylinder_model_.top_center.z()),
         0.0, 1.0, 1.0, "source_to_cylinder_top"); // 青色
+
+    // --- 源点 Y 轴无限延长线 ---
+    // Y 轴正方向
+    Eigen::Vector3f y_pos_extend = source_point + Eigen::Vector3f(0.0f, 100.0f, 0.0f); // 100m 沿 +Y
+    viewer_->addLine(pcl::PointXYZ(source_point.x(), source_point.y(), source_point.z()),
+                     pcl::PointXYZ(y_pos_extend.x(), y_pos_extend.y(), y_pos_extend.z()), 0.0, 1.0, 0.0,
+                     "source_y_positive"); // 绿色（+Y 方向）
 
     // 计算距离
     double dist_3d = (cylinder_model_.geo_center - source_point).norm() * 1000.0; // 米 -> mm
