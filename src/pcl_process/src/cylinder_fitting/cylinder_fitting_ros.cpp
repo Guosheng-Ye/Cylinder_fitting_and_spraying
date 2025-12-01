@@ -300,7 +300,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
 
             tpl_msg.targets.reserve(slices.size());
             for (const auto &slice : slices) { //切片中心
-                // 1. 坐标转换：Lidar (mm) -> Base (mm)
+                // 坐标转换：Lidar (mm) -> Base (mm)
                 Eigen::Vector3d pos_spray_center(slice.center_mm.x(), slice.center_mm.y(), slice.center_mm.z());
                 Eigen::Vector3d pos_circle_center(slice.circle_center_mm.x(), slice.circle_center_mm.y(),
                                                   slice.circle_center_mm.z());
@@ -326,19 +326,19 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 double circle_z_base_mm_raised = C_base_mm.z() + MIN_WORK_HEIGHT_MM;
                 double work_z_base_mm_raised   = work_point.z() + MIN_WORK_HEIGHT_MM;
 
-                // 3. Z 轴上限约束检查
+                // Z 轴上限约束检查
                 if (target_z_base_mm_raised > working_max_z_base_mm) {
                     ROS_WARN("Slice ID %d Z (%.2f mm) exceeds max working Z (%.2f mm) after offset. Skipping.",
                              slice.id + 1, target_z_base_mm_raised, working_max_z_base_mm);
                     continue;
                 }
 
-                // // 显式构造 A_final_mm 和 C_final_mm，确保 Z 坐标是抬高后的值**
-                // // 使用 (X_base, Y_base, Z_raised) 构造最终点
+                // 显式构造 A_final_mm 和 C_final_mm，确保 Z 坐标是抬高后的值**
+                // 使用 (X_base, Y_base, Z_raised) 构造最终点
                 Eigen::Vector3d A_final_mm(A_base_mm.x(), A_base_mm.y(), target_z_base_mm_raised);
                 Eigen::Vector3d C_final_mm(C_base_mm.x(), C_base_mm.y(), circle_z_base_mm_raised);
 
-                // // 4. 计算喷涂工作点 B_nearPoint (Base mm)
+                // // 计算喷涂工作点 B_nearPoint (Base mm)
                 // Eigen::Vector3d v    = A_final_mm - C_final_mm; // 指向外侧
                 // double          norm = v.norm();
                 // Eigen::Vector3d B_nearPoint; // 喷涂工作点
@@ -358,7 +358,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 //     mm)", slice.id + 1, work_point.x() / 1000.0, work_point.y() / 1000.0, work_z_base_mm_raised /
                 //     1000.0, SPRAY_OFFSET_MM);
 
-                // 5. 填充 TargetPose (给曲臂的消息，单位：m) - 使用 work_point
+                // 填充 TargetPose (给曲臂的消息，单位：m) - 使用 work_point
                 pcl_process::TargetPose pose;
                 pose.id = slice.id + 1;
 
@@ -389,7 +389,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 // 半径
                 ti_msg.radius = fitter_->radius() * 1000.0f; // m -> mm
                 // 其他参数
-                ti_msg.angle  = slice.angle_deg;
+                ti_msg.angle  = std::round((slice.angle_deg) * 1000.0) / 1000.0;
                 ti_msg.height = fitter_->fittingParams().slice_height_;
 
                 ROS_WARN("Cylinder ID: %d,circle:[%.3f,%.3f,%.3f],=> Zspray_center:[%.3f,%.3f,%.3f], "
@@ -404,10 +404,10 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 // 添加到消息列表
                 tpl_msg.targets.push_back(pose);
 
-                // 发布 喷涂目标信息
+                // 发布喷涂目标信息
                 spray_target_pose_pub_.publish(ti_msg);
             }
-            // 发布曲臂消息
+            // 发布曲臂workPoint消息
             target_pose_pub_.publish(tpl_msg);
 
             ROS_ERROR("ONCE cylinder fitting completed.");
@@ -419,23 +419,21 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
     }
 }
 
+/// @brief 处理参数回调函数
+/// @param msg
 void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam &msg) {
     double distance = msg.distance;
     double width    = msg.width;
     double height   = msg.height;
 
-    // 是否有任何参数发生变化
     bool changed = (distance != last_distance_) || (width != last_width_) || (height != last_height_);
     if (changed) {
         ROS_WARN("Process parameters changed: distance=%.2f (was %.2f), width=%.2f (was %.2f), height=%.2f (was %.2f)",
                  distance, last_distance_, width, last_width_, height, last_height_);
 
-        // 更新历史值
         last_distance_ = distance;
         last_width_    = width;
         last_height_   = height;
-
-        // 调用 setOption 更新配置
         setOption(distance, width, height);
     } else {
         ROS_DEBUG("Process parameters unchanged, skipping setOption call.");

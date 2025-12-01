@@ -404,7 +404,7 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     extract.setNegative(false);
     extract.filter(*cylinder_model_.inliers);
 
-    // ===== 圆柱几何参数计算 =====
+    // 圆柱几何参数计算
     Eigen::Vector3f fitted_axis(coefficients_cylinder->values[3], coefficients_cylinder->values[4],
                                 coefficients_cylinder->values[5]);
     fitted_axis.normalize();
@@ -798,7 +798,8 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
             }
 
             // 该切片的角度跨度 (总角度 / 宽度切片数)
-            sd.angle_deg = (angle_range / num_width_slices) * 180.0 / M_PI;
+            double raw_angle_deg = (angle_range / num_width_slices) * 180.0 / M_PI;
+            sd.angle_deg         = std::round(raw_angle_deg * 1000.0) / 1000.0;
             slices_data_.push_back(std::move(sd));
         }
 
