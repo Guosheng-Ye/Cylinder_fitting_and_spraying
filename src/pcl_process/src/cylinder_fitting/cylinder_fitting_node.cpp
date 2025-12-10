@@ -465,7 +465,6 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     // 圆度检查
     double circularity = calculateCircularity(cylinder_model_.inliers, proj_center, fitted_axis, mean_r);
 
-    // ===== 详细日志输出 =====
     ROS_INFO("========== Cylinder Validation ==========");
     ROS_INFO("Inliers:          %zu [%d-%d] %s", inlier_count, fp.min_inliers, fp.max_inliers,
              (inlier_count >= (size_t)fp.min_inliers && inlier_count <= (size_t)fp.max_inliers) ? "ok" : "false");
@@ -483,7 +482,6 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     ROS_INFO("Circularity:      %.4f [>0.15] %s", circularity, (circularity >= 0.15) ? "ok" : "false");
     ROS_INFO("=========================================");
 
-    // ===== 综合验证条件 =====
     bool        valid = true;
     std::string reject_reason;
 
@@ -520,7 +518,7 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
         return;
     }
 
-    // ===== 构建圆柱模型 =====
+    // 构建圆柱模型
     cylinder_model_.valid         = true;
     cylinder_model_.radius        = mean_r;
     cylinder_model_.bottom_center = proj_center + min_proj * axis_norm;
@@ -536,7 +534,7 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
         cylinder_model_.geo_center = 0.5f * (cylinder_model_.bottom_center + cylinder_model_.top_center);
     }
 
-    // ===== 成功输出 =====
+    // 成功输出
     ROS_INFO("========== Cylinder ACCEPTED ==========");
     std::cout << "圆柱检测成功:\n"
               << "  底面中心: [" << cylinder_model_.bottom_center.transpose() << "]\n"
