@@ -5,3 +5,5 @@ src/pcd_datas/
 rslidar_sdk/
 .catkin_workspace
 log/
+res/
+res.zip

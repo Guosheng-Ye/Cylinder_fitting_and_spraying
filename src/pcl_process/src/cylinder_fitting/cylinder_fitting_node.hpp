@@ -135,6 +135,8 @@ private:
     void visualizeResults();
 
     void printResults();
+    
+    void saveVisualizationData();
     void viewerThread();
 
     CylinderFitterParams fitting_params_{};

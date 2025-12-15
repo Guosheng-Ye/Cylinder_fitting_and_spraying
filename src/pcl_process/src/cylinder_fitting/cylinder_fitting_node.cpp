@@ -60,6 +60,8 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
         ROS_WARN("Slice time: %f seconds.", slice_time.count());
         // 打印结果
         printResults();
+        // 保存可视化数据（包括切片信息）
+        saveVisualizationData();
         return 1;
     } else {
         return -1;
@@ -990,33 +992,6 @@ void CylinderFitter::visualizeResults() {
                          .norm() *
                      1000.0; // 米 -> mm
     ROS_INFO("[Distance] Geo center: %f mm, Bottom center: %f mm", dist_3d, dist_xy);
-
-    // Save point cloud to res directory
-    ROS_ERROR("Saving point cloud to res directory");
-    try {
-        std::string package_path = ros::package::getPath("pcl_process");
-        std::string res_dir      = package_path + "/res";
-
-        struct stat st = {0};
-        if (stat(res_dir.c_str(), &st) == -1) {
-            mkdir(res_dir.c_str(), 0777);
-        }
-
-        std::time_t now       = std::time(nullptr);
-        std::tm*    local_tm  = std::localtime(&now);
-        char        time_str[64];
-        std::strftime(time_str, sizeof(time_str), "%Y-%m-%d-%H-%M-%S", local_tm);
-
-        std::string pcd_filename = res_dir + "/cylinder_fitting_" + std::string(time_str) + ".pcd";
-
-        if (pcl::io::savePCDFileBinary(pcd_filename, *cloud_) == 0) {
-            ROS_INFO("Saved point cloud to %s (%zu points)", pcd_filename.c_str(), cloud_->size());
-        } else {
-            ROS_ERROR("Failed to save point cloud to %s", pcd_filename.c_str());
-        }
-    } catch (const std::exception& e) {
-        ROS_ERROR("Error saving point cloud: %s", e.what());
-    }
 }
 
 /// @brief 打印结果
@@ -1083,6 +1058,294 @@ void CylinderFitter::printResults() {
     // ROS_WARN(" Cylinder fitting completed.");
 }
 
+/// @brief 保存所有可视化数据（原始点云+拟合几何+切片）带颜色信息
+void CylinderFitter::saveVisualizationData() {
+    if (!hasModel()) {
+        ROS_WARN("No cylinder model available for saving.");
+        return;
+    }
+
+    try {
+        std::string package_path = ros::package::getPath("pcl_process");
+        std::string res_dir      = package_path + "/res";
+
+        struct stat st = {0};
+        if (stat(res_dir.c_str(), &st) == -1) {
+            mkdir(res_dir.c_str(), 0777);
+        }
+
+        std::time_t now       = std::time(nullptr);
+        std::tm*    local_tm  = std::localtime(&now);
+        char        time_str[64];
+        std::strftime(time_str, sizeof(time_str), "%Y-%m-%d-%H-%M-%S", local_tm);
+
+        // 创建带颜色的点云
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+        
+        // 创建颜色记录文件
+        std::string color_log_file = res_dir + "/visualization_colors_" + std::string(time_str) + ".txt";
+        std::ofstream color_log(color_log_file, std::ios::app);
+        color_log << "====== Visualization Color Information ======\n";
+        color_log << "Timestamp: " << time_str << "\n\n";
+
+        auto addPointsWithColor = [&](const std::string &name, const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
+                                       uint8_t r, uint8_t g, uint8_t b) {
+            if (!cloud || cloud->empty()) return;
+            color_log << name << " (RGB: " << (int)r << ", " << (int)g << ", " << (int)b << ") - " 
+                     << cloud->size() << " points\n";
+            for (const auto &pt : cloud->points) {
+                pcl::PointXYZRGB rgb_pt;
+                rgb_pt.x = pt.x;
+                rgb_pt.y = pt.y;
+                rgb_pt.z = pt.z;
+                rgb_pt.r = r;
+                rgb_pt.g = g;
+                rgb_pt.b = b;
+                colored_cloud->push_back(rgb_pt);
+            }
+        };
+
+        auto addPoint = [&](const std::string &name, const Eigen::Vector3f &pt, uint8_t r, uint8_t g, uint8_t b) {
+            color_log << name << " (RGB: " << (int)r << ", " << (int)g << ", " << (int)b << ")\n";
+            pcl::PointXYZRGB rgb_pt;
+            rgb_pt.x = pt.x();
+            rgb_pt.y = pt.y();
+            rgb_pt.z = pt.z();
+            rgb_pt.r = r;
+            rgb_pt.g = g;
+            rgb_pt.b = b;
+            colored_cloud->push_back(rgb_pt);
+        };
+
+        auto addLineSegments = [&](const std::string &name, const Eigen::Vector3f &p0, const Eigen::Vector3f &p1,
+                                    uint8_t r, uint8_t g, uint8_t b, int samples = 100) {
+            color_log << name << " (RGB: " << (int)r << ", " << (int)g << ", " << (int)b << ") - " 
+                     << samples << " segments\n";
+            for (int i = 0; i <= samples; ++i) {
+                double          t = (double)i / samples;
+                Eigen::Vector3f pt = p0 + t * (p1 - p0);
+                pcl::PointXYZRGB rgb_pt;
+                rgb_pt.x = pt.x();
+                rgb_pt.y = pt.y();
+                rgb_pt.z = pt.z();
+                rgb_pt.r = r;
+                rgb_pt.g = g;
+                rgb_pt.b = b;
+                colored_cloud->push_back(rgb_pt);
+            }
+        };
+
+        color_log << "\n--- Visualization Elements ---\n";
+
+        // 1. 白色原始点云 (255, 255, 255)
+        addPointsWithColor("1. Original Point Cloud (White)", cloud_, 255, 255, 255);
+
+        // 2. 红色圆柱表面点云 (255, 0, 0)
+        {
+            pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_surface(new pcl::PointCloud<pcl::PointXYZ>);
+            Eigen::Vector3f axis_norm   = cylinder_model_.axis.normalized();
+            Eigen::Vector3f x           = axis_norm.unitOrthogonal();
+            Eigen::Vector3f y           = axis_norm.cross(x);
+            double          radius      = cylinder_model_.radius;
+            Eigen::Vector3f center      = cylinder_model_.bottom_center;
+            double          min_proj    = (cylinder_model_.bottom_center - center).dot(axis_norm);
+            double          max_proj    = (cylinder_model_.top_center - center).dot(axis_norm);
+
+            int n_circ = 20;
+            int n_h    = 25;
+            for (int i = 0; i <= n_h; ++i) {
+                double          h = min_proj + (max_proj - min_proj) * i / n_h;
+                Eigen::Vector3f layer = center + h * axis_norm;
+                for (int j = 0; j < n_circ; ++j) {
+                    double          theta = 2.0 * M_PI * j / n_circ;
+                    Eigen::Vector3f pt    = layer + radius * (std::cos(theta) * x + std::sin(theta) * y);
+                    cylinder_surface->push_back(pcl::PointXYZ(pt.x(), pt.y(), pt.z()));
+                }
+            }
+            addPointsWithColor("2. Cylinder Surface (Red)", cylinder_surface, 255, 0, 0);
+        }
+
+        // 3. 黄色底面圆环 (255, 255, 0)
+        {
+            pcl::PointCloud<pcl::PointXYZ>::Ptr bottom_ring(new pcl::PointCloud<pcl::PointXYZ>);
+            Eigen::Vector3f axis_norm = cylinder_model_.axis.normalized();
+            Eigen::Vector3f x         = axis_norm.unitOrthogonal();
+            Eigen::Vector3f y         = axis_norm.cross(x);
+            double          radius    = cylinder_model_.radius;
+            Eigen::Vector3f center    = cylinder_model_.bottom_center;
+            int             ring_pts  = 72;
+            for (int i = 0; i < ring_pts; ++i) {
+                double          theta = 2.0 * M_PI * i / ring_pts;
+                Eigen::Vector3f pt    = center + radius * (std::cos(theta) * x + std::sin(theta) * y);
+                bottom_ring->push_back(pcl::PointXYZ(pt.x(), pt.y(), pt.z()));
+            }
+            addPointsWithColor("3. Bottom Ring (Yellow)", bottom_ring, 255, 255, 0);
+        }
+
+        // 4. 青色顶面圆环 (0, 255, 255)
+        {
+            pcl::PointCloud<pcl::PointXYZ>::Ptr top_ring(new pcl::PointCloud<pcl::PointXYZ>);
+            Eigen::Vector3f axis_norm = cylinder_model_.axis.normalized();
+            Eigen::Vector3f x         = axis_norm.unitOrthogonal();
+            Eigen::Vector3f y         = axis_norm.cross(x);
+            double          radius    = cylinder_model_.radius;
+            Eigen::Vector3f center    = cylinder_model_.top_center;
+            int             ring_pts  = 72;
+            for (int i = 0; i < ring_pts; ++i) {
+                double          theta = 2.0 * M_PI * i / ring_pts;
+                Eigen::Vector3f pt    = center + radius * (std::cos(theta) * x + std::sin(theta) * y);
+                top_ring->push_back(pcl::PointXYZ(pt.x(), pt.y(), pt.z()));
+            }
+            addPointsWithColor("4. Top Ring (Cyan)", top_ring, 0, 255, 255);
+        }
+
+        // 5. 底面中心球体 (255, 255, 0) 黄色
+        color_log << "\n--- Sphere Centers ---\n";
+        addPoint("5. Bottom Center Sphere (Yellow)", cylinder_model_.bottom_center, 255, 255, 0);
+
+        // 6. 顶面中心球体 (0, 255, 255) 青色
+        addPoint("6. Top Center Sphere (Cyan)", cylinder_model_.top_center, 0, 255, 255);
+
+        // 7. 圆柱轴线 (255, 0, 0) 红色
+        color_log << "\n--- Cylinder Axis ---\n";
+        Eigen::Vector3f axis_norm = cylinder_model_.axis.normalized();
+        Eigen::Vector3f center    = cylinder_model_.bottom_center;
+        double          min_proj  = (cylinder_model_.bottom_center - center).dot(axis_norm);
+        double          max_proj  = (cylinder_model_.top_center - center).dot(axis_norm);
+        Eigen::Vector3f start     = center + min_proj * axis_norm;
+        Eigen::Vector3f end       = center + max_proj * axis_norm;
+        addLineSegments("7. Cylinder Axis (Red)", start, end, 255, 0, 0, 100);
+
+        // 8. 紫色源点到圆柱中点连线 (255, 0, 255)
+        color_log << "\n--- Reference Lines ---\n";
+        Eigen::Vector3f source_point(0, 0, 0);
+        addLineSegments("8. Source to Cylinder Center (Magenta)", source_point, 
+                       cylinder_model_.geo_center, 255, 0, 255, 100);
+
+        // 9. 黄色源点到圆柱底面中心连线 (255, 255, 0)
+        addLineSegments("9. Source to Bottom Center (Yellow)", source_point, 
+                       cylinder_model_.bottom_center, 255, 255, 0, 100);
+
+        // 10. 青色源点到圆柱顶面中心连线 (0, 255, 255)
+        addLineSegments("10. Source to Top Center (Cyan)", source_point, 
+                       cylinder_model_.top_center, 0, 255, 255, 100);
+
+        // 11. 绿色Y轴正方向 (0, 255, 0)
+        color_log << "\n--- Y Axis Reference ---\n";
+        Eigen::Vector3f y_pos_extend = source_point + Eigen::Vector3f(0.0f, 100.0f, 0.0f);
+        addLineSegments("11. Source Y+ Axis (Green)", source_point, y_pos_extend, 0, 255, 0, 200);
+
+        // 12. 切片中心 (绿色) (0, 255, 0) - 加大显示
+        color_log << "\n--- Slice Centers ---\n";
+        color_log << "12. Slice Centers (Green) - " << slices_data_.size() << " slices\n";
+        for (const auto &slice : slices_data_) {
+            // 为了让点显示得更大，在中心点周围添加多个相同颜色的点（形成一个小球）
+            Eigen::Vector3f center_pos(slice.center_mm.x() / 1000.0f, 
+                                       slice.center_mm.y() / 1000.0f, 
+                                       slice.center_mm.z() / 1000.0f);
+            const float sphere_radius = 0.015f; // 15mm 半径
+            int sphere_samples = 20; // 采样点数
+            
+            for (int s = 0; s < sphere_samples; ++s) {
+                float theta = 2.0f * M_PI * s / sphere_samples;
+                for (int t = 0; t < 3; ++t) {
+                    float phi = M_PI * t / 3.0f;
+                    float x = sphere_radius * std::sin(phi) * std::cos(theta);
+                    float y = sphere_radius * std::sin(phi) * std::sin(theta);
+                    float z = sphere_radius * std::cos(phi);
+                    
+                    pcl::PointXYZRGB rgb_pt;
+                    rgb_pt.x = center_pos.x() + x;
+                    rgb_pt.y = center_pos.y() + y;
+                    rgb_pt.z = center_pos.z() + z;
+                    rgb_pt.r = 0;
+                    rgb_pt.g = 255;
+                    rgb_pt.b = 0;
+                    colored_cloud->push_back(rgb_pt);
+                }
+            }
+        }
+
+        // 13. 工作点 (蓝色) (0, 0, 255) - 加大显示
+        color_log << "\n--- Slice Work Points ---\n";
+        color_log << "13. Slice Work Points (Blue) - " << slices_data_.size() << " work points\n";
+        for (const auto &slice : slices_data_) {
+            // 为了让点显示得更大，在工作点周围添加多个相同颜色的点（形成一个小球）
+            Eigen::Vector3f work_pos(slice.work_mm.x() / 1000.0f, 
+                                     slice.work_mm.y() / 1000.0f, 
+                                     slice.work_mm.z() / 1000.0f);
+            const float sphere_radius = 0.015f; // 15mm 半径
+            int sphere_samples = 20; // 采样点数
+            
+            for (int s = 0; s < sphere_samples; ++s) {
+                float theta = 2.0f * M_PI * s / sphere_samples;
+                for (int t = 0; t < 3; ++t) {
+                    float phi = M_PI * t / 3.0f;
+                    float x = sphere_radius * std::sin(phi) * std::cos(theta);
+                    float y = sphere_radius * std::sin(phi) * std::sin(theta);
+                    float z = sphere_radius * std::cos(phi);
+                    
+                    pcl::PointXYZRGB rgb_pt;
+                    rgb_pt.x = work_pos.x() + x;
+                    rgb_pt.y = work_pos.y() + y;
+                    rgb_pt.z = work_pos.z() + z;
+                    rgb_pt.r = 0;
+                    rgb_pt.g = 0;
+                    rgb_pt.b = 255;
+                    colored_cloud->push_back(rgb_pt);
+                }
+            }
+        }
+
+        // 14. 轴线中心 (白色) (255, 255, 255)
+        color_log << "\n--- Slice Axis Centers ---\n";
+        color_log << "14. Slice Axis Centers (White) - " << slices_data_.size() << " axis centers\n";
+        for (const auto &slice : slices_data_) {
+            pcl::PointXYZRGB rgb_pt;
+            rgb_pt.x = slice.circle_center_mm.x() / 1000.0f;
+            rgb_pt.y = slice.circle_center_mm.y() / 1000.0f;
+            rgb_pt.z = slice.circle_center_mm.z() / 1000.0f;
+            rgb_pt.r = 255;
+            rgb_pt.g = 255;
+            rgb_pt.b = 255;
+            colored_cloud->push_back(rgb_pt);
+        }
+
+        // 设置点云宽度和高度
+        colored_cloud->width  = colored_cloud->size();
+        colored_cloud->height = 1;
+        colored_cloud->is_dense = true;
+
+        // 保存带颜色的点云
+        std::string colored_pcd = res_dir + "/cylinder_visualization_colored_" + std::string(time_str) + ".pcd";
+        if (pcl::io::savePCDFileBinary(colored_pcd, *colored_cloud) == 0) {
+            ROS_INFO("✓ Saved colored visualization data to %s (%zu points)", colored_pcd.c_str(), 
+                    colored_cloud->size());
+        } else {
+            ROS_ERROR("✗ Failed to save colored visualization data");
+        }
+
+        // 保存颜色日志
+        color_log << "\n====== Summary ======\n";
+        color_log << "Total Points Saved: " << colored_cloud->size() << "\n";
+        color_log << "Original Cloud Points: " << cloud_->size() << "\n";
+        color_log << "Cylinder Surface Points: " << (20 * 25) << "\n";
+        color_log << "Bottom Ring Points: " << 72 << "\n";
+        color_log << "Top Ring Points: " << 72 << "\n";
+        color_log << "Reference Lines Points: " << (101 + 101 + 101 + 101 + 201) << "\n";
+        color_log << "Slices Count: " << slices_data_.size() << "\n";
+        color_log << "Slice Centers (Green): " << (slices_data_.size() * 60) << "\n";
+        color_log << "Slice Work Points (Blue): " << (slices_data_.size() * 60) << "\n";
+        color_log << "Slice Axis Centers: " << slices_data_.size() << "\n";
+        color_log.close();
+        
+        ROS_INFO("✓ Saved visualization color information to %s", color_log_file.c_str());
+
+    } catch (const std::exception& e) {
+        ROS_ERROR("Error saving visualization data: %s", e.what());
+    }
+}
+
 /// @brief 视图线程
 void CylinderFitter::viewerThread() {
     while (running_) {
@@ -1093,63 +1356,3 @@ void CylinderFitter::viewerThread() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
-
-/*
-/// @brief PCD 数据文件进行圆柱拟合
-/// @return
- int CylinderFitter::run_with_pcd() {
-    if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_path_, *cloud_) == -1) {
-        PCL_ERROR("Couldn't read file %s\n", pcd_path_.c_str());
-        return -1;
-    }
-    ROS_INFO("Loaded %zu points from %s", cloud_->size(), pcd_path_.c_str());
-
-    // 角度过滤
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered_angle(new pcl::PointCloud<pcl::PointXYZ>);
-    const double                        angle_limit = 30.0 * M_PI / 180.0;
-
-    for (const auto &p : cloud_->points) {
-        if (std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z)) continue;
-        if (p.x <= 0) continue;
-        double angle = std::atan2(p.y, p.x);
-        if (std::abs(angle) <= angle_limit) {
-            cloud_filtered_angle->push_back(p);
-        }
-    }
-    ROS_INFO("After angle filtering: %zu points remain.", cloud_filtered_angle->size());
-    cloud_ = cloud_filtered_angle;
-
-    std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
-    // 法线估计
-    pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-    estimateNormals(cloud_, normals);
-
-    // 圆柱拟合
-    fitCylinderPCL(cloud_, normals);
-
-    if (!hasModel()) {
-        ROS_WARN("No valid cylinder model found; skipping slicing.");
-        return -1;
-    }
-
-    std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> time_span  = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);
-    ROS_INFO("Cylinder fitting time: %f seconds.", time_span.count());
-
-    // 可视化
-    visualizeResults();
-
-    // 计算圆柱高度并调用切片
-    if (hasModel()) {
-        std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
-        sliceCylinder(180.0, fitting_params_.slice_height_, fitting_params_.slice_weight_);
-        std::chrono::steady_clock::time_point t4 = std::chrono::steady_clock::now();
-        std::chrono::duration<double> slice_time = std::chrono::duration_cast<std::chrono::duration<double>>(t4 - t3);
-        ROS_INFO("Slice time: %f seconds.", slice_time.count());
-    }
-
-    /// 打印数值结果
-    printResults();
-    return 0;
-}
-*/
