@@ -1,4 +1,8 @@
 #include "cylinder_fitting_node.hpp"
+#include <pcl/io/pcd_io.h>
+#include <ros/package.h>
+#include <sys/stat.h>
+#include <ctime>
 
 CylinderFitter::CylinderFitter(const std::string &pcd_path)
     : pcd_path_(pcd_path)
@@ -986,6 +990,33 @@ void CylinderFitter::visualizeResults() {
                          .norm() *
                      1000.0; // 米 -> mm
     ROS_INFO("[Distance] Geo center: %f mm, Bottom center: %f mm", dist_3d, dist_xy);
+
+    // Save point cloud to res directory
+    ROS_ERROR("Saving point cloud to res directory");
+    try {
+        std::string package_path = ros::package::getPath("pcl_process");
+        std::string res_dir      = package_path + "/res";
+
+        struct stat st = {0};
+        if (stat(res_dir.c_str(), &st) == -1) {
+            mkdir(res_dir.c_str(), 0777);
+        }
+
+        std::time_t now       = std::time(nullptr);
+        std::tm*    local_tm  = std::localtime(&now);
+        char        time_str[64];
+        std::strftime(time_str, sizeof(time_str), "%Y-%m-%d-%H-%M-%S", local_tm);
+
+        std::string pcd_filename = res_dir + "/cylinder_fitting_" + std::string(time_str) + ".pcd";
+
+        if (pcl::io::savePCDFileBinary(pcd_filename, *cloud_) == 0) {
+            ROS_INFO("Saved point cloud to %s (%zu points)", pcd_filename.c_str(), cloud_->size());
+        } else {
+            ROS_ERROR("Failed to save point cloud to %s", pcd_filename.c_str());
+        }
+    } catch (const std::exception& e) {
+        ROS_ERROR("Error saving point cloud: %s", e.what());
+    }
 }
 
 /// @brief 打印结果
