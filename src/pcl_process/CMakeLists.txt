@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
     std_msgs
     message_generation
     geometry_msgs
+    roslib
 )
 find_package(PCL REQUIRED)
 
