@@ -1,5 +1,5 @@
+import numpy as np
 def calculate_angle_in_robot_frame_corrected(
-            self,
             robot_max_reach,  # R_arm: 机械臂最大臂长 (球半径)1500
             cylinder_center,  # P_cyl: 圆柱轴线上一点 [x, y, z] (机械臂坐标系)
             cylinder_axis,  # V_axis: 圆柱轴线方向 [i, j, k]
@@ -54,3 +54,32 @@ def calculate_angle_in_robot_frame_corrected(
         total_angle = 2 * np.degrees(alpha)
 
         return total_angle, "计算成功"
+
+def main():
+    # TEST  
+    robot_reach = 1400
+    angle, msg = calculate_angle_in_robot_frame_corrected(
+        robot_max_reach=robot_reach,
+        cylinder_center=[-996.669, -1112.73, 480.369],
+        cylinder_axis=[-0.00514, -0.02479, -0.999679],
+        cylinder_radius=351,
+        offset_dist=700,
+        regional_height=800  # 修正后的总工作高度 H
+    )
+
+    print("-" * 30)
+    print(f"计算结果: {msg}")
+    print(f"圆柱表面可覆盖的总角度: {angle:.2f}°")
+
+
+if __name__ == "__main__":
+    main()
+
+# /cylinder_fitting/cal.py
+# 工作范围 Z: [80.37, 880.37]
+# 距离底座最远垂直距离 Delta_Z_max: 880.37
+# 底座到圆柱轴线的垂直距离 D: 1504.00
+# 修正后的有效水平臂长 R_eff: 1088.55
+# ------------------------------
+# 计算结果: 计算成功
+# 圆柱表面可覆盖的总角度: 92.73°

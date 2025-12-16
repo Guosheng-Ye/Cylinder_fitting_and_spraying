@@ -35,7 +35,7 @@
 def calculate_angle_in_robot_frame_corrected(
             self,
             robot_max_reach,  # R_arm: 机械臂最大臂长 (球半径)1500
-            cylinder_center,  # P_cyl: 圆柱轴线上一点 [x, y, z] (机械臂坐标系)
+            cylinder_center,  # P_cyl: 圆柱轴线上一点 [x, y, z] (机械臂坐标系)【x，y，400】
             cylinder_axis,  # V_axis: 圆柱轴线方向 [i, j, k]
             cylinder_radius,  # r_cyl: 圆柱半径
             offset_dist,  # D_offset: 喷涂距离
