@@ -3,6 +3,7 @@
 #include "cylinder_fitting_ros.hpp"
 #include <Eigen/src/Core/Matrix.h>
 #include <atomic>
+#include <set>
 
 /// @brief 点云回调
 /// @param msg
@@ -61,6 +62,22 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
 
             tpl_msg.targets.reserve(slices.size());
 
+            // ========== 预处理：确定哪些高度层是有效的 ==========
+            // 同一层只要有一个切片在 Z 范围内，整层都保留
+            std::set<int> valid_layers;
+            for (const auto &slice : slices) {
+                // 坐标转换：Lidar (mm) -> Base (mm)
+                Eigen::Vector3d pos_spray_center(slice.center_mm.x(), slice.center_mm.y(), slice.center_mm.z());
+                Eigen::Vector3d A_base_mm = tf_lidar2_base_->to_base_from_lidar(pos_spray_center);
+                double target_z_base_mm_raised = A_base_mm.z() + MIN_WORK_HEIGHT_MM;
+
+                // 如果该切片在 Z 范围内，标记该层为有效
+                if (target_z_base_mm_raised <= working_max_z_base_mm) {
+                    valid_layers.insert(slice.layer_index);
+                }
+            }
+            ROS_INFO("Valid layers count: %zu (layers with at least one valid slice)", valid_layers.size());
+
             int published_id_counter = 0; //有效切片id号
 
             for (const auto &slice : slices) { //切片中心
@@ -95,10 +112,10 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                           A_base_mm.y(), target_z_base_mm_raised, work_point.x(), work_point.y(),
                           work_z_base_mm_raised);
 
-                // Z 轴上限约束检查
-                if (target_z_base_mm_raised > working_max_z_base_mm) {
-                    ROS_WARN("Slice ID %d Z (%.2f mm) exceeds max working Z (%.2f mm) after offset. Skipping.\n",
-                             slice.id + 1, target_z_base_mm_raised, working_max_z_base_mm);
+                // 检查该层是否在有效层集合中（同一层只要有一个切片有效，整层都保留）
+                if (valid_layers.find(slice.layer_index) == valid_layers.end()) {
+                    ROS_WARN("Slice ID %d (layer %d) Z (%.2f mm) - entire layer exceeds max working Z (%.2f mm). Skipping.\n",
+                             slice.id + 1, slice.layer_index, target_z_base_mm_raised, working_max_z_base_mm);
                     continue;
                 }
 
@@ -216,18 +233,21 @@ void CylinderFittingROS::setOption(const float distance, const float width, cons
     this->fitter_->sliceOptions().print_centers_ = true;  // 切片中心点
 
     this->fitter_->setFittingParams(CylinderFitter::CylinderFitterParams{
-        .min_inliers        = 300,     // 最小内点数
-        .max_inliers        = 600,     // 最大内点数
-        .min_inlier_ratio   = 0.02,    // 最小内点比例
-        .max_inlier_ratio   = 0.50,    // 最大内点比例
-        .min_height_m       = 1.00,    // 最小高度（米）
-        .min_radius_m       = 0.30,    // 最小半径（米）
-        .max_radius_m       = 0.40,    // 最大半径(米)
-        .min_radial_rel_std = 0.00,    // 最小径向相对标准差
-        .max_radial_rel_std = 0.15,    // 最大径向相对标准差
-        .slice_height_      = height,  // 切片高度（毫米）
-        .slice_weight_      = width,   // 切片宽度（毫米）
-        .slice_distance_    = distance // 切片间距（毫米）
+        .min_inliers        = 300,      // 最小内点数
+        .max_inliers        = 600,      // 最大内点数
+        .min_inlier_ratio   = 0.02,     // 最小内点比例
+        .max_inlier_ratio   = 0.50,     // 最大内点比例
+        .min_height_m       = 1.00,     // 最小高度（米）
+        .min_radius_m       = 0.30,     // 最小半径（米）
+        .max_radius_m       = 0.40,     // 最大半径(米)
+        .min_radial_rel_std = 0.00,     // 最小径向相对标准差
+        .max_radial_rel_std = 0.15,     // 最大径向相对标准差
+        .slice_height_      = height,   // 切片高度（毫米）
+        .slice_width_       = width,    // 切片宽度（毫米）
+        .slice_distance_    = distance, // 喷头工作间距（毫米）
+        .r_initial_         = 0.50,     // 初始搭接比例0.5
+        .robot_R_arm_       = 1500.0,   // 机械臂最大臂长1500mm
+        .work_width_        = width,    // 喷幅（毫米）
     });
     ROS_WARN("Cylinder fitting parameters have been set.");
 }
