@@ -17,8 +17,8 @@
 #include <ros/ros.h>
 #include <string>
 #include <thread>
-#include <vector>
 #include <utility>
+#include <vector>
 
 // 定义M_PI常量
 #ifndef M_PI
@@ -28,27 +28,27 @@
 // 定义输入参数结构体
 struct PlanningInputs {
     // 圆柱参数 (假设已拟合得到)
-    std::vector<double> P_cyl;          // 圆柱轴线上一点 [x, y, z]
-    std::vector<double> V_axis;         // 圆柱轴线方向 [i, j, k]
-    double r_cyl;                       // 圆柱半径
+    std::vector<double> P_cyl;  // 圆柱轴线上一点 [x, y, z]
+    std::vector<double> V_axis; // 圆柱轴线方向 [i, j, k]
+    double              r_cyl;  // 圆柱半径
 
     // 机器人和工作区域参数
-    double robot_R_arm;                 // 机械臂最大臂长 R_arm
-    double D_offset;                    // 喷涂距离 D_offset
-    double H_region;                    // 总工作高度 H
+    double robot_R_arm; // 机械臂最大臂长 R_arm
+    double D_offset;    // 喷涂距离 D_offset
+    double H_region;    // 总工作高度 H
 
     // 喷涂工艺参数
-    double d_spray;                     // 喷幅 d
-    double r_initial;                   // 初始搭接比例 r
-    double h_slice;                     // 切片高度 h (未在角度计算中使用)
+    double d_spray;   // 喷幅 d
+    double r_initial; // 初始搭接比例 r
+    double h_slice;   // 切片高度 h (未在角度计算中使用)
 };
 
 // 定义输出结果结构体
 struct PlanningOutputs {
-    double max_coverage_angle;          // 机械臂最大覆盖角度 (theta_max)
-    double optimal_slice_angle;         // 最佳切片角度宽度 w
-    double final_overlap_ratio;         // 调整后的搭接比例 r_final
-    std::string status_message;         // 状态信息
+    double      max_coverage_angle;  // 机械臂最大覆盖角度 (theta_max)
+    double      optimal_slice_angle; // 最佳切片角度宽度 w
+    double      final_overlap_ratio; // 调整后的搭接比例 r_final
+    std::string status_message;      // 状态信息
 };
 
 class CylinderFitter {
@@ -70,10 +70,14 @@ public:
         double max_radial_rel_std{0.15}; // 最大径向相对标准差
 
         // 切片参数
-        double slice_height_{600.00}; //切片高度（毫米）
-        double slice_weight_{300.00}; //切片宽度（毫米）
-        // 工作面距离
-        double slice_distance_{1150}; // 工作面距离1150mm
+        double slice_height_{600.00}; // 切片高度（毫米）
+        double slice_width_{300.00};  // 切片宽度（毫米）
+        double slice_distance_{1150}; // 喷头距离圆柱表面偏移为1150mm
+
+        // 工艺参数
+        double r_initial_{0.50};     // 初始搭接比例0.5
+        double robot_R_arm_{1500.0}; // 机械臂最大臂长1500mm
+        double work_width_{300.0};   // 喷幅300mm
     };
     void                        setFittingParams(const CylinderFitterParams &p) { fitting_params_ = p; }
     const CylinderFitterParams &fittingParams() const { return fitting_params_; }
@@ -122,49 +126,46 @@ public:
     /// @brief 核心执行函数：整合几何计算和喷涂优化。
     /// @param inputs 包含所有输入参数的结构体。
     /// @return PlanningOutputs 包含所有计算结果和状态信息的结构体。
-    PlanningOutputs execute_slice_planning(const PlanningInputs& inputs);
+    PlanningOutputs execute_slice_planning(const PlanningInputs &inputs);
 
 private:
-
+    /// @brief
+    /// @param target_post 机械臂基座
+    /// @param spray_center 喷涂作业点
+    /// @param circle_center 圆柱中心坐标
+    /// @return
+    std::vector<double> cylinder_center_convert2robot_base(const std::vector<double> target_pose,
+                                                           const std::vector<double> spray_center,
+                                                           const std::vector<double> circle_center);
 
     /// @brief 辅助向量操作函数
-    double norm(const std::vector<double>& v) const;
-    std::vector<double> cross_product(const std::vector<double>& a, const std::vector<double>& b) const;
+    double              norm(const std::vector<double> &v) const;
+    std::vector<double> cross_product(const std::vector<double> &a, const std::vector<double> &b) const;
 
     /// @brief 几何约束计算 (移植自 cal.py
-    /// @param robot_max_reach 
-    /// @param cylinder_center 
-    /// @param cylinder_axis 
-    /// @param cylinder_radius 
-    /// @param offset_dist 
-    /// @param regional_height 
-    /// @return 
-    std::pair<double, std::string> calculate_max_slice_angle(
-        double robot_max_reach,
-        const std::vector<double>& cylinder_center,
-        const std::vector<double>& cylinder_axis,
-        double cylinder_radius,
-        double offset_dist,
-        double regional_height
-    );
+    /// @param robot_max_reach
+    /// @param cylinder_center
+    /// @param cylinder_axis
+    /// @param cylinder_radius
+    /// @param offset_dist
+    /// @param regional_height
+    /// @return
+    std::pair<double, std::string> calculate_max_slice_angle(double                     robot_max_reach,
+                                                             const std::vector<double> &cylinder_center,
+                                                             const std::vector<double> &cylinder_axis,
+                                                             double cylinder_radius, double offset_dist,
+                                                             double regional_height);
 
     /// @brief 喷涂角度优化 (自动调节搭接比例)
-    /// @param max_coverage_angle 
-    /// @param spray_width 
-    /// @param initial_overlap_ratio 
-    /// @param cylinder_radius 
-    /// @param offset_dist 
-    /// @param final_overlap_ratio 
-    /// @return 
-    double calculate_optimal_slice_angle(
-        double max_coverage_angle,
-        double spray_width,
-        double initial_overlap_ratio,
-        double cylinder_radius,
-        double offset_dist,
-        double& final_overlap_ratio
-    );
-
+    /// @param max_coverage_angle
+    /// @param spray_width
+    /// @param initial_overlap_ratio
+    /// @param cylinder_radius
+    /// @param offset_dist
+    /// @param final_overlap_ratio
+    /// @return
+    double calculate_optimal_slice_angle(double max_coverage_angle, double spray_width, double initial_overlap_ratio,
+                                         double cylinder_radius, double offset_dist, double &final_overlap_ratio);
 
     /// @brief 法线修复
     /// @param cloud 点云

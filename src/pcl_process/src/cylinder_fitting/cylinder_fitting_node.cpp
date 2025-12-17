@@ -1,8 +1,8 @@
 #include "cylinder_fitting_node.hpp"
+#include <ctime>
 #include <pcl/io/pcd_io.h>
 #include <ros/package.h>
 #include <sys/stat.h>
-#include <ctime>
 
 CylinderFitter::CylinderFitter(const std::string &pcd_path)
     : pcd_path_(pcd_path)
@@ -39,7 +39,7 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
              "min_height_m=%.2f, min_radius_m=%.2f, max_radius_m=%.2f, min_radial_rel_std=%.4f, max_radial_rel_std=%.4f"
              "slice_height=%.2f, slice_weight=%.2f, work_distance:%.2f",
              fp.min_inliers, fp.max_inliers, fp.min_inlier_ratio, fp.max_inlier_ratio, fp.min_height_m, fp.min_radius_m,
-             fp.max_radius_m, fp.min_radial_rel_std, fp.max_radial_rel_std, fp.slice_height_, fp.slice_weight_,
+             fp.max_radius_m, fp.min_radial_rel_std, fp.max_radial_rel_std, fp.slice_height_, fp.slice_width_,
              fp.slice_distance_);
 
     fitCylinderPCL(cloud_, normals);
@@ -53,31 +53,54 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
 
     // 计算圆柱高度并调用切片
     if (hasModel()) {
-        ROS_ERROR("Cal max slice angle...");
+        ROS_ERROR("[MAX SLICE ANGLE] Cal max slice angle...");
         // TODO 传入圆柱中心坐标，需要基于机械臂基坐标系
-        //得到圆柱拟合结果  
-        PlanningInputs inputs;
-        inputs.P_cyl       = {cylinder_model_.bottom_center.x()*1000.0,
-                             cylinder_model_.bottom_center.y() * 1000.0,
-                            cylinder_model_.bottom_center.z()*1000.0};
-        inputs.V_axis      = {cylinder_model_.axis.x(), cylinder_model_.axis.y(), cylinder_model_.axis.z()};
-        inputs.r_cyl       = cylinder_model_.radius*1000.0;
 
-        // 机械臂共作区域(入参)
-        inputs.robot_R_arm = 1500.0; // 机械臂最大臂长 R_arm
-        inputs.D_offset    = 700.0;  // 喷涂距离 D
-        inputs.H_region    = cylinder_model_.height*1000.0  ; // 总工作高度 H
+        PlanningInputs inputs; //得到圆柱拟合结果
+        // 获取圆柱轴线上一点(基于机械臂基坐标系)
+        // inputs.P_cyl  = {cylinder_model_.bottom_center.x() * 1000.0, cylinder_model_.bottom_center.y() * 1000.0,
+        //                  cylinder_model_.bottom_center.z() * 1000.0};
+        inputs.V_axis = {cylinder_model_.axis.x(), cylinder_model_.axis.y(), cylinder_model_.axis.z() * (-1.0)};
+        inputs.r_cyl  = cylinder_model_.radius * 1000.0;
+
+        // cal test data
+        inputs.P_cyl = {-996.669, -1112.73, 480.369};
+        // inputs.V_axis = {-0.00514, -0.02479, -0.999679};
+        // inputs.r_cyl  = 650.0;
+        // cal test data
+
+        ROS_ERROR(
+            "Fitted cylinder axis point: [%.2f, %.2f, %.2f] mm, axis direction: [%.4f, %.4f, %.4f], radius: %.2f mm",
+            inputs.P_cyl[0], inputs.P_cyl[1], inputs.P_cyl[2], inputs.V_axis[0], inputs.V_axis[1], inputs.V_axis[2],
+            inputs.r_cyl);
+
+        // 机械臂工作区域(入参)
+        inputs.robot_R_arm = fp.robot_R_arm_;    // 机械臂最大臂长 R_arm
+        inputs.D_offset    = fp.slice_distance_; // 喷涂距离 D
+        inputs.H_region    = fp.slice_height_;   // fp.slice_height_; // 总工作高度 H
 
         // 喷涂工艺参数
-        inputs.d_spray = 300.0;             // 喷幅 300
-        inputs.r_initial = 0.5;             // 初始搭接比例 50%
-        inputs.h_slice = cylinder_model_.height*1000.0;              // 切片高度
+        inputs.d_spray   = fp.work_width_;   // 喷幅 300
+        inputs.r_initial = 0.5;              // 初始搭接比例 50%
+        inputs.h_slice   = fp.slice_height_; // fp.slice_height_; // 切片高度
 
         // 计算输出
         PlanningOutputs outputs = execute_slice_planning(inputs);
+        ROS_ERROR("Calculated max coverage angle: %.2f deg, optimal slice angle: %.2f deg, final overlap ratio: %.2f, "
+                  "status: %s",
+                  outputs.max_coverage_angle, outputs.optimal_slice_angle, outputs.final_overlap_ratio,
+                  outputs.status_message.c_str());
 
-        // TODO 切片处理，需要使用计算后的最大切片宽度(角度)
-        sliceCylinder(180.0, fp.slice_height_, fp.slice_weight_);
+        // 将优化后的切片角度转换为切片宽度（毫米）
+        // slice_width_mm = radius_mm * angle_rad = radius_mm * (angle_deg * π/180)
+        double radius_mm                = cylinder_model_.radius * 1000.0;
+        double optimized_slice_width_mm = radius_mm * (outputs.optimal_slice_angle * M_PI / 180.0);
+
+        ROS_INFO("Converting slice angle to width: %.4f deg -> %.2f mm (radius: %.2f mm)", outputs.optimal_slice_angle,
+                 optimized_slice_width_mm, radius_mm);
+
+        // 使用优化后的切片宽度进行切片
+        sliceCylinder(180.0, fp.slice_height_, optimized_slice_width_mm);
 
         // 打印结果
         printResults();
@@ -87,6 +110,90 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
     } else {
         return -1;
     }
+}
+
+/// @brief
+/// @param target_post 机械臂基座
+/// @param spray_center 喷涂作业点
+/// @param circle_center 圆柱中心坐标
+//  if (pose_ptr)
+// {
+//     // 任意角度变换：假设 theta 为小臂相对于曲臂坐标系的旋转角度
+//     // theta = 90度 + arctan(spray_center_y / spray_center_x)
+//     // 曲臂指向喷涂中心方向，且小臂相对于曲臂有 90 度的固定旋转
+//     double yaw   = std::atan2(ti.spray_center[1], ti.spray_center[0]);
+//     double theta = M_PI / 2.0 + yaw;
+//     double cos_t = std::cos(theta);
+//     double sin_t = std::sin(theta);
+//     // 计算全局坐标系下的差值向量 (Target -> Spray Center)
+//     double dx_s = ti.spray_center[0] - pose_ptr->target_pose.position.x * 1000;
+//     // 列补偿：若该目标属于“大 x 列”，根据桥接节点对 x 额外 -0.3m 的调整，在此再手动减小 300mm
+//     if (pose_ptr->target_pose.position.x > 0.8)
+//     {
+//         dx_s -= 500.0; // 额外减小 500mm
+//         ROS_INFO_STREAM_THROTTLE(1.0, "[robot_bt_manager] dx_s column compensation applied (x>1.0m): -300mm");
+//     }
+//     double dy_s = ti.spray_center[1] - pose_ptr->target_pose.position.y * 1000 - 700;
+//     // 旋转矩阵逆变换 (R^T) 转换到小臂局部坐标系
+//     sx = dx_s * cos_t + dy_s * sin_t;
+//     sy = -dx_s * sin_t + dy_s * cos_t;
+//     sz = ti.spray_center[2] - pose_ptr->target_pose.position.z * 1000;
+//     // 同理计算 circle_center
+//     double dx_c = ti.circle_center[0] - pose_ptr->target_pose.position.x * 1000;
+//     if (pose_ptr->target_pose.position.x > 0.8)
+//     {
+//         dx_c -= 500.0; // 额外减小 500mm
+//         ROS_INFO_STREAM_THROTTLE(1.0, "[robot_bt_manager] dx_s column compensation applied (x>1.0m): -300mm");
+//     }
+//     double dy_c = ti.circle_center[1] - pose_ptr->target_pose.position.y * 1000 - 700;
+//     cx = dx_c * cos_t + dy_c * sin_t;
+//     cy = -dx_c * sin_t + dy_c * cos_t;
+//     cz = ti.circle_center[2] - pose_ptr->target_pose.position.z * 1000;
+// }
+// else
+// {
+//     ROS_WARN_STREAM_THROTTLE(
+//         2.0, "[robot_bt_manager] buildTargetInfoJson: target id="
+//                  << id << " 未找到姿态(g_targets/g_finished_target_pose_cache均无); spray_center 未转换");
+// }
+/// @return
+std::vector<double> CylinderFitter::cylinder_center_convert2robot_base(const std::vector<double> target_pose,
+                                                                       const std::vector<double> spray_center,
+                                                                       const std::vector<double> circle_center) {
+
+    // 任意角度变换：假设 theta 为小臂相对于曲臂坐标系的旋转角度
+    // theta = 90度 + arctan(spray_center_y / spray_center_x)
+    // 曲臂指向喷涂中心方向，且小臂相对于曲臂有 90 度的固定旋转
+    double yaw   = std::atan2(spray_center[1], spray_center[0]);
+    double theta = M_PI / 2.0 + yaw;
+    double cos_t = std::cos(theta);
+    double sin_t = std::sin(theta);
+
+    // 计算全局坐标系下的差值向量 (Target -> Spray Center)
+    double dx_s = spray_center[0] - target_pose[0] * 1000;
+    // 列补偿：若该目标属于“大 x 列”，根据桥接节点对 x 额外 -0.3m 的调整，在此再手动减小 300mm
+    if (target_pose[0] > 0.8) {
+        dx_s -= 500.0; // 额外减小 500mm
+        ROS_INFO_STREAM_THROTTLE(1.0, "[robot_bt_manager] dx_s column compensation applied (x>1.0m): -300mm");
+    }
+    double dy_s = spray_center[1] - target_pose[1] * 1000 - 700;
+    // 旋转矩阵逆变换 (R^T) 转换到小臂局部坐标系
+    double sx = dx_s * cos_t + dy_s * sin_t;
+    double sy = -dx_s * sin_t + dy_s * cos_t;
+    double sz = spray_center[2] - target_pose[2] * 1000;
+    // 同理计算 circle_center
+    double dx_c = circle_center[0] - target_pose[0] * 1000;
+    if (target_pose[0] > 0.8) {
+        dx_c -= 500.0; // 额外减小 500mm
+        ROS_INFO_STREAM_THROTTLE(1.0, "[robot_bt_manager] dx_s column compensation applied (x>1.0m): -300mm");
+    }
+    double dy_c = circle_center[1] - target_pose[1] * 1000 - 700;
+
+    double cx = dx_c * cos_t + dy_c * sin_t;
+    double cy = -dx_c * sin_t + dy_c * cos_t;
+    double cz = circle_center[2] - target_pose[2] * 1000;
+    std::cout << " Converted spray center to robot base: [" << sx << "," << sy << "," << sz << "] mm" << std::endl;
+    std::cout << " Converted circle center to robot base: [" << cx << "," << cy << "," << cz << "] mm" << std::endl;
 }
 
 /// @brief 法线估计
@@ -576,31 +683,47 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     ROS_INFO("=======================================");
 }
 
+/// @brief 几何约束计算 (移植自 cal.py)
+/// @param robot_max_reach 机械臂最大臂展（球半径）如1500mm
+/// @param cylinder_center 圆柱轴线上一点[x,y,z](机械臂坐标系)
+/// @param cylinder_axis  圆柱轴线防线[i,j,k]
+/// @param cylinder_radius  圆柱半径
+/// @param offset_dist 喷涂距离
+/// @param regional_height 总工作高度
+/// @return
+std::pair<double, std::string> CylinderFitter::calculate_max_slice_angle(double                     robot_max_reach,
+                                                                         const std::vector<double> &cylinder_center,
+                                                                         const std::vector<double> &cylinder_axis,
+                                                                         double cylinder_radius, double offset_dist,
+                                                                         double regional_height) {
 
-// 几何约束计算 (移植自 cal.py)
-std::pair<double, std::string> CylinderFittingNode::calculate_max_slice_angle(
-    double robot_max_reach,
-    const std::vector<double>& cylinder_center,
-    const std::vector<double>& cylinder_axis,
-    double cylinder_radius,
-    double offset_dist,
-    double regional_height)
-{
+    // 调试输出输入参数
+    ROS_INFO("========== calculate_max_slice_angle inputs ==========");
+    ROS_INFO("robot_max_reach (R_arm): %.2f mm", robot_max_reach);
+    ROS_INFO("cylinder_center (P_cyl): [%.2f, %.2f, %.2f] mm", cylinder_center[0], cylinder_center[1],
+             cylinder_center[2]);
+    ROS_INFO("cylinder_axis (V_axis): [%.4f, %.4f, %.4f]", cylinder_axis[0], cylinder_axis[1], cylinder_axis[2]);
+    ROS_INFO("cylinder_radius (r_cyl): %.2f mm", cylinder_radius);
+    ROS_INFO("offset_dist (D_offset): %.2f mm", offset_dist);
+    ROS_INFO("regional_height (H): %.2f mm", regional_height);
 
     // 1. 确定最远工作高度 Delta_Z_max
     double Z_cyl_center = cylinder_center[2];
-    double H = regional_height;
-    double Z_max_limit = Z_cyl_center + H / 2.0;
-    double Z_min_limit = Z_cyl_center - H / 2.0;
-    double Delta_Z_max = std::max(std::abs(Z_max_limit), std::abs(Z_min_limit));
+    double H            = regional_height;
+    double Z_max_limit  = Z_cyl_center + H / 2.0;
+    double Z_min_limit  = Z_cyl_center - H / 2.0;
+    double Delta_Z_max  = std::max(std::abs(Z_max_limit), std::abs(Z_min_limit));
+
+    ROS_INFO("Work range Z: [%.2f, %.2f] mm", Z_min_limit, Z_max_limit);
+    ROS_INFO("Delta_Z_max (max vertical distance from base): %.2f mm", Delta_Z_max);
 
     // 2. 计算垂直距离 D
-    std::vector<double> P_base = {0.0, 0.0, 0.0};
-    std::vector<double> P_cyl = cylinder_center;
+    std::vector<double> P_base      = {0.0, 0.0, 0.0};
+    std::vector<double> P_cyl       = cylinder_center;
     std::vector<double> V_axis_unit = cylinder_axis;
-    double axis_norm = norm(V_axis_unit);
+    double              axis_norm   = norm(V_axis_unit);
     if (axis_norm == 0.0) {
-        return {0.0, "Error: 圆柱轴线方向向量长度为零"};
+        return {0.0, "Error: Cylinder axis vector has zero length"};
     }
     // 归一化 V_axis
     V_axis_unit[0] /= axis_norm;
@@ -608,55 +731,68 @@ std::pair<double, std::string> CylinderFittingNode::calculate_max_slice_angle(
     V_axis_unit[2] /= axis_norm;
 
     std::vector<double> w = {P_base[0] - P_cyl[0], P_base[1] - P_cyl[1], P_base[2] - P_cyl[2]};
-    double D = norm(cross_product(w, V_axis_unit));
+    double              D = norm(cross_product(w, V_axis_unit));
+
+    ROS_INFO("Distance from base to cylinder axis (D): %.2f mm", D);
 
     // 3. 计算有效臂长 R_eff
     double R_task = cylinder_radius + offset_dist;
 
+    ROS_INFO("R_task (r_cyl + D_offset): %.2f mm", R_task);
+
     if (Delta_Z_max >= robot_max_reach) {
-        return {0.0, "Error: 工作高度超出机械臂最大范围"};
+        ROS_ERROR("Delta_Z_max (%.2f) >= robot_max_reach (%.2f), work height exceeds arm range!", Delta_Z_max,
+                  robot_max_reach);
+        return {0.0, "Error: Work height exceeds robot max reach"};
     }
 
     double R_eff_sq = robot_max_reach * robot_max_reach - Delta_Z_max * Delta_Z_max;
     if (R_eff_sq < 0.0) {
-        return {0.0, "Error: 有效水平臂长平方为负"};
+        ROS_ERROR("R_eff_sq is negative: %.2f", R_eff_sq);
+        return {0.0, "Error: Effective horizontal reach squared is negative"};
     }
     double R_eff = std::sqrt(R_eff_sq);
 
+    ROS_INFO("Effective horizontal reach (R_eff): %.2f mm", R_eff);
+
     // 4. 余弦定理计算角度
     if (R_eff < std::abs(D - R_task)) {
-        return {0.0, "Error: 无法触及表面"};
+        ROS_ERROR("R_eff (%.2f) < |D - R_task| (%.2f), cannot reach surface!", R_eff, std::abs(D - R_task));
+        return {0.0, "Error: Cannot reach the cylinder surface"};
     }
 
     double denominator = 2.0 * R_task * D;
     if (denominator == 0.0) {
-        return {0.0, "Error: 分母为零，无法计算角度"};
+        return {0.0, "Error: Denominator is zero, cannot calculate angle"};
     }
 
     double cos_alpha = (R_task * R_task + D * D - R_eff * R_eff) / denominator;
-    cos_alpha = std::max(-1.0, std::min(1.0, cos_alpha));
+    cos_alpha        = std::max(-1.0, std::min(1.0, cos_alpha));
 
-    double alpha_rad = std::acos(cos_alpha);
+    double alpha_rad       = std::acos(cos_alpha);
     double total_angle_deg = 2.0 * (alpha_rad * 180.0 / M_PI);
 
-    return {total_angle_deg, "计算成功"};
+    ROS_INFO("cos_alpha: %.4f, alpha: %.2f deg, total_angle: %.2f deg", cos_alpha, alpha_rad * 180.0 / M_PI,
+             total_angle_deg);
+    ROS_INFO("========== calculate_max_slice_angle DONE ==========");
+
+    return {total_angle_deg, "Success"};
 }
 
+/// @brief 喷涂角度优化 (自动调节搭接比例)
+/// @param max_coverage_angle 最大覆盖角度
+/// @param spray_width 喷涂宽度
+/// @param initial_overlap_ratio 初始搭接比例
+/// @param cylinder_radius 圆柱半径
+/// @param offset_dist 喷头工作偏移距离
+/// @param final_overlap_ratio 最终搭接比例 (输出)
+/// @return
+double CylinderFitter::calculate_optimal_slice_angle(double max_coverage_angle, double spray_width,
+                                                     double initial_overlap_ratio, double cylinder_radius,
+                                                     double offset_dist, double &final_overlap_ratio) {
+    // ==================== 参数配置 ====================
+    const double TARGET_COVERAGE_ANGLE = 180.0; // 目标覆盖角度：圆柱的一半
 
-// 喷涂角度优化 (自动调节搭接比例)
-// 需求：
-// 1. 切片宽 w 必须是有效喷幅 w0 的整数倍 (w = k * w0, k >= 1)
-// 2. w0 = d * (1 - r)，其中 d 是喷幅，r 是搭接比例
-// 3. r 只能增大（不能减小），以满足完整覆盖
-// 4. 最终 w 应该是最大可行的切片宽度（效率最高）
-double CylinderFittingNode::calculate_optimal_slice_angle(
-    double max_coverage_angle,
-    double spray_width,
-    double initial_overlap_ratio,
-    double cylinder_radius,
-    double offset_dist,
-    double& final_overlap_ratio)
-{
     if (max_coverage_angle <= 0.0) {
         final_overlap_ratio = initial_overlap_ratio;
         return 0.0;
@@ -664,154 +800,176 @@ double CylinderFittingNode::calculate_optimal_slice_angle(
 
     // 1. 计算工作半径 R_task (mm)
     double R_task = cylinder_radius + offset_dist;
-    
+
     // 2. 初始有效喷幅 w0_init (线性距离 mm)
     double w0_init_linear = spray_width * (1.0 - initial_overlap_ratio);
-    
+
     // 3. 将初始有效喷幅转换为角度 (度)
     double w0_init_deg = (w0_init_linear / R_task) * (180.0 / M_PI);
 
     if (w0_init_deg <= 0.0) {
-        ROS_ERROR("初始有效喷幅角度必须大于零 (w0_init_deg = %.4f)", w0_init_deg);
+        ROS_ERROR("Initial w0 must be positive (w0_init_deg = %.4f)", w0_init_deg);
         final_overlap_ratio = initial_overlap_ratio;
         return 0.0;
     }
 
-    ROS_INFO("========== Slice Angle Optimization ==========");
-    ROS_INFO("Max Coverage Angle: %.4f deg", max_coverage_angle);
-    ROS_INFO("Spray Width (d): %.2f mm", spray_width);
-    ROS_INFO("Initial Overlap Ratio (r): %.4f (%.1f%%)", initial_overlap_ratio, initial_overlap_ratio * 100.0);
-    ROS_INFO("Initial Effective Spray (w0): %.2f mm = %.4f deg", w0_init_linear, w0_init_deg);
-    ROS_INFO("Work Radius (R_task): %.2f mm", R_task);
+    ROS_INFO("============ Slice Optimization Algorithm ============");
+    ROS_WARN("----------- Before Optimization -----------");
+    ROS_INFO("[Before] Target Coverage Angle: %.2f deg (half cylinder)", TARGET_COVERAGE_ANGLE);
+    ROS_INFO("[Before] Max Coverage Angle per Position: %.4f deg", max_coverage_angle);
+    ROS_INFO("[Before] Spray Width (d): %.2f mm", spray_width);
+    ROS_INFO("[Before] Overlap Ratio (r): %.4f (%.1f%%)", initial_overlap_ratio, initial_overlap_ratio * 100.0);
+    ROS_INFO("[Before] w0 = d * (1 - r) = %.2f mm (%.4f deg)", w0_init_linear, w0_init_deg);
+    ROS_INFO("[Before] Task Radius (R_task): %.2f mm", R_task);
 
-    // 4. 枚举所有可能的配置
-    // 设切片宽 w = k * w0，其中 k >= 1 是整数（w0的整数倍）
-    // 设切片数 N，需要 N * w >= max_coverage_angle（完整覆盖）
-    
-    struct SliceConfig {
-        int    k;                    // w0 的倍数
-        int    N;                    // 切片数
-        double w_deg;                // 切片宽度（度）
-        double w0_adjusted_deg;      // 调整后的 w0（度）
-        double r_adjusted;           // 调整后的搭接比例
-        double total_coverage_deg;   // 总覆盖角度
-        bool   is_valid;
-    };
-    
-    std::vector<SliceConfig> candidates;
-    
-    // 枚举 k (w0 的倍数): 从最大可能值向下枚举
-    int k_max = std::max(1, static_cast<int>(std::floor(max_coverage_angle / w0_init_deg)));
-    
-    for (int k = k_max; k >= 1; --k) {
-        // 理想切片宽度 w = k * w0_init
-        double w_ideal_deg = k * w0_init_deg;
-        
-        // 计算需要多少个切片才能覆盖整个工作面
-        int N = static_cast<int>(std::ceil(max_coverage_angle / w_ideal_deg));
-        if (N < 1) N = 1;
-        
-        // 实际需要的切片宽度，使得 N * w_actual = max_coverage_angle（精确覆盖）
-        double w_actual_deg = max_coverage_angle / static_cast<double>(N);
-        
-        // w_actual = k * w0_adjusted => w0_adjusted = w_actual / k
-        double w0_adjusted_deg = w_actual_deg / static_cast<double>(k);
-        
-        // 将 w0_adjusted 转换回线性距离
-        double w0_adjusted_linear = w0_adjusted_deg * (M_PI / 180.0) * R_task;
-        
-        // 反推新的搭接比例: w0 = d * (1 - r) => r = 1 - w0 / d
-        double r_adjusted = 1.0 - (w0_adjusted_linear / spray_width);
-        
-        SliceConfig config;
-        config.k = k;
-        config.N = N;
-        config.w_deg = w_actual_deg;
-        config.w0_adjusted_deg = w0_adjusted_deg;
-        config.r_adjusted = r_adjusted;
-        config.total_coverage_deg = N * w_actual_deg;
-        config.is_valid = true;
-        
-        // ========== 约束检查 ==========
-        
-        // 约束1：搭接比例必须 >= 初始值（只能增大，不能减小）
-        if (r_adjusted < initial_overlap_ratio - 1e-6) {
-            config.is_valid = false;
-            continue;
-        }
-        
-        // 约束2：搭接比例不能 >= 1.0（否则 w0 为零或负）
-        if (r_adjusted >= 1.0 - 1e-6) {
-            config.is_valid = false;
-            continue;
-        }
-        
-        // 约束3：覆盖必须足够
-        if (config.total_coverage_deg < max_coverage_angle - 1e-6) {
-            config.is_valid = false;
-            continue;
-        }
-        
-        if (config.is_valid) {
-            candidates.push_back(config);
-        }
-    }
-    
-    // 5. 选择最优配置
-    if (candidates.empty()) {
-        ROS_WARN("No valid slice configuration found! Using fallback.");
-        // 回退方案：使用初始参数，计算需要多少个切片
-        int N_fallback = static_cast<int>(std::ceil(max_coverage_angle / w0_init_deg));
-        if (N_fallback < 1) N_fallback = 1;
+    // ==================== 新优化逻辑 ====================
+
+    // 步骤1: 计算需要多少次机械臂基座移动
+    // N = ceil(目标覆盖角度 / 单次最大覆盖角度)
+    int N_positions = static_cast<int>(std::ceil(TARGET_COVERAGE_ANGLE / max_coverage_angle));
+    if (N_positions < 1) N_positions = 1;
+
+    ROS_INFO("[Step1] Number of robot base positions: N = ceil(%.2f / %.4f) = %d", TARGET_COVERAGE_ANGLE,
+             max_coverage_angle, N_positions);
+
+    // 步骤2: 计算每次基座位置需要覆盖的角度
+    // 每次覆盖 = 目标覆盖角度 / N
+    double coverage_per_position = TARGET_COVERAGE_ANGLE / static_cast<double>(N_positions);
+
+    ROS_INFO("[Step2] Coverage per position: %.4f deg (= %.2f / %d)", coverage_per_position, TARGET_COVERAGE_ANGLE,
+             N_positions);
+
+    // 检查：每次覆盖角度必须 <= 机械臂单次最大覆盖角度
+    if (coverage_per_position > max_coverage_angle + 1e-6) {
+        ROS_ERROR("Coverage per position (%.4f deg) exceeds max coverage angle (%.4f deg)!", coverage_per_position,
+                  max_coverage_angle);
         final_overlap_ratio = initial_overlap_ratio;
-        return max_coverage_angle / N_fallback;
+        return max_coverage_angle;
     }
-    
-    // 按 k 降序、N 升序排序（优先选择 k 最大的配置）
-    std::sort(candidates.begin(), candidates.end(), 
-        [](const SliceConfig& a, const SliceConfig& b) {
-            if (a.k != b.k) return a.k > b.k;
-            return a.N < b.N;
+
+    // 步骤3: 在每次覆盖范围内，计算需要多少个 w0
+    // k = round(coverage_per_position / w0_init_deg)
+    int k_spray_passes = static_cast<int>(std::round(coverage_per_position / w0_init_deg));
+    if (k_spray_passes < 1) k_spray_passes = 1;
+
+    ROS_INFO("[Step3] Number of spray passes per position: k = round(%.4f / %.4f) = %d", coverage_per_position,
+             w0_init_deg, k_spray_passes);
+
+    // 步骤4: 调整 w0 使得 k × w0_adjusted = coverage_per_position（精确覆盖）
+    double w0_adjusted_deg    = coverage_per_position / static_cast<double>(k_spray_passes);
+    double w0_adjusted_linear = w0_adjusted_deg * (M_PI / 180.0) * R_task;
+
+    ROS_INFO("[Step4] Adjusted w0: %.4f deg (%.2f mm)", w0_adjusted_deg, w0_adjusted_linear);
+
+    // 步骤5: 反推新的搭接比例
+    // w0 = d × (1 - r) => r = 1 - w0 / d
+    double r_adjusted = 1.0 - (w0_adjusted_linear / spray_width);
+
+    ROS_INFO("[Step5] Adjusted overlap ratio: r = 1 - %.2f / %.2f = %.4f (%.1f%%)", w0_adjusted_linear, spray_width,
+             r_adjusted, r_adjusted * 100.0);
+
+    // ==================== 约束检查 ====================
+
+    bool        need_fallback = false;
+    std::string fallback_reason;
+
+    // 约束1：搭接比例必须 >= 初始值（只能增大，不能减小）
+    if (r_adjusted < initial_overlap_ratio - 1e-6) {
+        ROS_WARN("Constraint violation: r_adjusted (%.4f) < initial_overlap_ratio (%.4f)", r_adjusted,
+                 initial_overlap_ratio);
+        ROS_WARN("This means we need fewer spray passes than expected. Increasing k...");
+
+        // 增加 k 直到满足约束
+        while (r_adjusted < initial_overlap_ratio - 1e-6 && k_spray_passes < 100) {
+            k_spray_passes++;
+            w0_adjusted_deg    = coverage_per_position / static_cast<double>(k_spray_passes);
+            w0_adjusted_linear = w0_adjusted_deg * (M_PI / 180.0) * R_task;
+            r_adjusted         = 1.0 - (w0_adjusted_linear / spray_width);
         }
-    );
-    
-    const SliceConfig& optimal = candidates[0];
-    
-    // 6. 输出结果
-    final_overlap_ratio = optimal.r_adjusted;
-    
-    ROS_INFO("----------- Optimal Configuration -----------");
-    ROS_INFO("Multiplier (k): %d (slice width = %d x w0)", optimal.k, optimal.k);
-    ROS_INFO("Number of Slices (N): %d", optimal.N);
-    ROS_INFO("Slice Width (w): %.4f deg", optimal.w_deg);
-    ROS_INFO("Adjusted w0: %.4f deg (%.2f mm)", optimal.w0_adjusted_deg, 
-             optimal.w0_adjusted_deg * (M_PI / 180.0) * R_task);
-    ROS_INFO("Adjusted Overlap Ratio (r): %.4f (%.1f%%)", optimal.r_adjusted, optimal.r_adjusted * 100.0);
-    ROS_INFO("Total Coverage: %.4f deg", optimal.total_coverage_deg);
-    
-    if (optimal.r_adjusted > initial_overlap_ratio + 0.001) {
-        ROS_WARN("Overlap ratio increased from %.1f%% to %.1f%% to achieve exact coverage",
-                 initial_overlap_ratio * 100.0, optimal.r_adjusted * 100.0);
+        ROS_INFO("After adjustment: k = %d, r = %.4f", k_spray_passes, r_adjusted);
     }
+
+    // 约束2：搭接比例不能 >= 1.0（否则 w0 为零或负）
+    if (r_adjusted >= 1.0 - 1e-6) {
+        need_fallback   = true;
+        fallback_reason = "Overlap ratio >= 1.0 (invalid)";
+    }
+
+    // 约束3：w0 必须为正
+    if (w0_adjusted_linear <= 0) {
+        need_fallback   = true;
+        fallback_reason = "w0_adjusted <= 0 (invalid)";
+    }
+
+    // ==================== 回退处理 ====================
+    if (need_fallback) {
+        ROS_WARN("Fallback triggered: %s", fallback_reason.c_str());
+        ROS_WARN("Using initial overlap ratio and simple calculation.");
+
+        k_spray_passes     = static_cast<int>(std::ceil(coverage_per_position / w0_init_deg));
+        w0_adjusted_deg    = w0_init_deg;
+        w0_adjusted_linear = w0_init_linear;
+        r_adjusted         = initial_overlap_ratio;
+    }
+
+    // ==================== 输出结果 ====================
+    final_overlap_ratio = r_adjusted;
+
+    double total_coverage     = coverage_per_position * N_positions;
+    int    total_spray_passes = k_spray_passes * N_positions;
+
+    ROS_WARN("----------- After Optimization -----------");
+    ROS_INFO("[Result] Robot Base Positions: %d", N_positions);
+    ROS_INFO("[Result] Coverage per Position: %.4f deg", coverage_per_position);
+    ROS_INFO("[Result] Spray Passes per Position (k): %d", k_spray_passes);
+    ROS_INFO("[Result] Total Spray Passes: %d", total_spray_passes);
+    ROS_INFO("[Result] Adjusted w0: %.4f deg (%.2f mm)", w0_adjusted_deg, w0_adjusted_linear);
+    ROS_INFO("[Result] Adjusted Overlap Ratio: %.4f (%.1f%%)", r_adjusted, r_adjusted * 100.0);
+    ROS_INFO("[Result] Total Coverage: %.4f deg (target: %.2f deg)", total_coverage, TARGET_COVERAGE_ANGLE);
+
+    // 显示优化效果
+    double overlap_change = (r_adjusted - initial_overlap_ratio) * 100.0;
+    if (std::abs(overlap_change) > 0.01) {
+        if (overlap_change > 0) {
+            ROS_WARN("Overlap ratio INCREASED by %.2f%% (from %.1f%% to %.1f%%) for exact coverage", overlap_change,
+                     initial_overlap_ratio * 100.0, r_adjusted * 100.0);
+        } else {
+            ROS_INFO("Overlap ratio decreased by %.2f%% (from %.1f%% to %.1f%%)", -overlap_change,
+                     initial_overlap_ratio * 100.0, r_adjusted * 100.0);
+        }
+    } else {
+        ROS_INFO("Overlap ratio unchanged (%.1f%%)", r_adjusted * 100.0);
+    }
+
+    // 显示精度验证
+    double actual_coverage_per_pos = k_spray_passes * w0_adjusted_deg;
+    double coverage_error          = actual_coverage_per_pos - coverage_per_position;
+    ROS_INFO("[Verify] k * w0 = %d * %.4f = %.4f deg (error: %.6f deg)", k_spray_passes, w0_adjusted_deg,
+             actual_coverage_per_pos, coverage_error);
+
     ROS_INFO("=============================================");
-    
-    // 返回机械臂单次能覆盖的最大角度范围（作为一次切片宽使用）
-    // 这是 N 个 w0 的整数倍，恰好等于 max_coverage_angle
-    return max_coverage_angle;
+
+    // 返回每次基座位置对应的覆盖角度
+    return coverage_per_position;
 }
 
-// 核心执行函数 (将您的测试代码封装) 
-PlanningOutputs CylinderFittingNode::execute_slice_planning(const PlanningInputs& inputs) {
+// 核心执行函数 (将您的测试代码封装)
+
+PlanningOutputs CylinderFitter::execute_slice_planning(const PlanningInputs &inputs) {
     PlanningOutputs outputs;
+
+    // 初始化输出变量
+    outputs.max_coverage_angle  = 0.0;
+    outputs.optimal_slice_angle = 0.0;
+    outputs.final_overlap_ratio = inputs.r_initial;
+    outputs.status_message      = "";
 
     try {
         // 1. 调用几何约束计算
-        auto result = calculate_max_slice_angle(
-            inputs.robot_R_arm, inputs.P_cyl, inputs.V_axis, 
-            inputs.r_cyl, inputs.D_offset, inputs.H_region
-        );
+        auto result = calculate_max_slice_angle(inputs.robot_R_arm, inputs.P_cyl, inputs.V_axis, inputs.r_cyl,
+                                                inputs.D_offset, inputs.H_region);
         outputs.max_coverage_angle = result.first;
-        outputs.status_message = result.second;
+        outputs.status_message     = result.second;
 
         if (outputs.max_coverage_angle <= 0.0) {
             // 几何计算失败或无法触及
@@ -819,39 +977,37 @@ PlanningOutputs CylinderFittingNode::execute_slice_planning(const PlanningInputs
             outputs.final_overlap_ratio = inputs.r_initial;
             return outputs;
         }
+        ROS_INFO("Max Coverage Angle (theta_max) calculated: %.2f deg before optimization", outputs.max_coverage_angle);
 
         // 2. 调用喷涂角度优化
-        outputs.optimal_slice_angle = calculate_optimal_slice_angle(
-            outputs.max_coverage_angle, inputs.d_spray, 
-            inputs.r_initial, inputs.r_cyl, inputs.D_offset, 
-            outputs.final_overlap_ratio
-        );
+        outputs.optimal_slice_angle =
+            calculate_optimal_slice_angle(outputs.max_coverage_angle, inputs.d_spray, inputs.r_initial, inputs.r_cyl,
+                                          inputs.D_offset, outputs.final_overlap_ratio);
 
-        outputs.status_message += "; 优化成功";
-        
+        outputs.status_message += "; Optimization done";
+
         // 打印结果（可选，用于调试）
-        std::cout << "\n--- 切片规划结果 ---" << std::endl;
-        std::cout << "状态: " << outputs.status_message << std::endl;
-        std::cout << "机器人最大覆盖角度 (theta_max): " << outputs.max_coverage_angle << " 度" << std::endl;
-        std::cout << "最佳切片宽度 w（机械臂单次覆盖范围）: " << outputs.optimal_slice_angle << " 度" << std::endl;
-        std::cout << "调整后的搭接比例 r (Final Overlap Ratio): " << outputs.final_overlap_ratio << std::endl;
-        
+        ROS_INFO("--- Slice Planning Result ---");
+        ROS_INFO("Status: %s", outputs.status_message.c_str());
+        ROS_INFO("Max Coverage Angle (theta_max): %.2f deg", outputs.max_coverage_angle);
+        ROS_INFO("Optimal Slice Width (w): %.2f deg", outputs.optimal_slice_angle);
+        ROS_INFO("Final Overlap Ratio (r): %.4f (%.1f%%)", outputs.final_overlap_ratio,
+                 outputs.final_overlap_ratio * 100.0);
+
         if (outputs.final_overlap_ratio > inputs.r_initial) {
-            std::cout << "(注意：搭接比例已从 " << inputs.r_initial << " 增大到 " 
-                      << outputs.final_overlap_ratio << "，以实现 w0 整数倍覆盖 180°)" << std::endl;
+            ROS_WARN("Overlap ratio increased from %.1f%% to %.1f%% to achieve integer multiple coverage",
+                     inputs.r_initial * 100.0, outputs.final_overlap_ratio * 100.0);
         }
 
-
-    } catch (const std::exception& e) {
-        outputs.max_coverage_angle = 0.0;
+    } catch (const std::exception &e) {
+        outputs.max_coverage_angle  = 0.0;
         outputs.optimal_slice_angle = 0.0;
         outputs.final_overlap_ratio = inputs.r_initial;
-        outputs.status_message = "执行时发生异常: " + std::string(e.what());
+        outputs.status_message      = "exe error: " + std::string(e.what());
     }
 
     return outputs;
 }
-
 
 /// @brief 对标准圆柱表面切片计算
 /// @param angle_range_deg 角度范围（度）
@@ -1372,25 +1528,25 @@ void CylinderFitter::saveVisualizationData() {
             mkdir(res_dir.c_str(), 0777);
         }
 
-        std::time_t now       = std::time(nullptr);
-        std::tm*    local_tm  = std::localtime(&now);
+        std::time_t now      = std::time(nullptr);
+        std::tm    *local_tm = std::localtime(&now);
         char        time_str[64];
         std::strftime(time_str, sizeof(time_str), "%Y-%m-%d-%H-%M-%S", local_tm);
 
         // 创建带颜色的点云
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-        
+
         // 创建颜色记录文件
-        std::string color_log_file = res_dir + "/visualization_colors_" + std::string(time_str) + ".txt";
+        std::string   color_log_file = res_dir + "/visualization_colors_" + std::string(time_str) + ".txt";
         std::ofstream color_log(color_log_file, std::ios::app);
         color_log << "====== Visualization Color Information ======\n";
         color_log << "Timestamp: " << time_str << "\n\n";
 
         auto addPointsWithColor = [&](const std::string &name, const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
-                                       uint8_t r, uint8_t g, uint8_t b) {
+                                      uint8_t r, uint8_t g, uint8_t b) {
             if (!cloud || cloud->empty()) return;
-            color_log << name << " (RGB: " << (int)r << ", " << (int)g << ", " << (int)b << ") - " 
-                     << cloud->size() << " points\n";
+            color_log << name << " (RGB: " << (int)r << ", " << (int)g << ", " << (int)b << ") - " << cloud->size()
+                      << " points\n";
             for (const auto &pt : cloud->points) {
                 pcl::PointXYZRGB rgb_pt;
                 rgb_pt.x = pt.x;
@@ -1416,12 +1572,12 @@ void CylinderFitter::saveVisualizationData() {
         };
 
         auto addLineSegments = [&](const std::string &name, const Eigen::Vector3f &p0, const Eigen::Vector3f &p1,
-                                    uint8_t r, uint8_t g, uint8_t b, int samples = 100) {
-            color_log << name << " (RGB: " << (int)r << ", " << (int)g << ", " << (int)b << ") - " 
-                     << samples << " segments\n";
+                                   uint8_t r, uint8_t g, uint8_t b, int samples = 100) {
+            color_log << name << " (RGB: " << (int)r << ", " << (int)g << ", " << (int)b << ") - " << samples
+                      << " segments\n";
             for (int i = 0; i <= samples; ++i) {
-                double          t = (double)i / samples;
-                Eigen::Vector3f pt = p0 + t * (p1 - p0);
+                double           t  = (double)i / samples;
+                Eigen::Vector3f  pt = p0 + t * (p1 - p0);
                 pcl::PointXYZRGB rgb_pt;
                 rgb_pt.x = pt.x();
                 rgb_pt.y = pt.y();
@@ -1441,18 +1597,18 @@ void CylinderFitter::saveVisualizationData() {
         // 2. 红色圆柱表面点云 (255, 0, 0)
         {
             pcl::PointCloud<pcl::PointXYZ>::Ptr cylinder_surface(new pcl::PointCloud<pcl::PointXYZ>);
-            Eigen::Vector3f axis_norm   = cylinder_model_.axis.normalized();
-            Eigen::Vector3f x           = axis_norm.unitOrthogonal();
-            Eigen::Vector3f y           = axis_norm.cross(x);
-            double          radius      = cylinder_model_.radius;
-            Eigen::Vector3f center      = cylinder_model_.bottom_center;
-            double          min_proj    = (cylinder_model_.bottom_center - center).dot(axis_norm);
-            double          max_proj    = (cylinder_model_.top_center - center).dot(axis_norm);
+            Eigen::Vector3f                     axis_norm = cylinder_model_.axis.normalized();
+            Eigen::Vector3f                     x         = axis_norm.unitOrthogonal();
+            Eigen::Vector3f                     y         = axis_norm.cross(x);
+            double                              radius    = cylinder_model_.radius;
+            Eigen::Vector3f                     center    = cylinder_model_.bottom_center;
+            double                              min_proj  = (cylinder_model_.bottom_center - center).dot(axis_norm);
+            double                              max_proj  = (cylinder_model_.top_center - center).dot(axis_norm);
 
             int n_circ = 20;
             int n_h    = 25;
             for (int i = 0; i <= n_h; ++i) {
-                double          h = min_proj + (max_proj - min_proj) * i / n_h;
+                double          h     = min_proj + (max_proj - min_proj) * i / n_h;
                 Eigen::Vector3f layer = center + h * axis_norm;
                 for (int j = 0; j < n_circ; ++j) {
                     double          theta = 2.0 * M_PI * j / n_circ;
@@ -1466,12 +1622,12 @@ void CylinderFitter::saveVisualizationData() {
         // 3. 黄色底面圆环 (255, 255, 0)
         {
             pcl::PointCloud<pcl::PointXYZ>::Ptr bottom_ring(new pcl::PointCloud<pcl::PointXYZ>);
-            Eigen::Vector3f axis_norm = cylinder_model_.axis.normalized();
-            Eigen::Vector3f x         = axis_norm.unitOrthogonal();
-            Eigen::Vector3f y         = axis_norm.cross(x);
-            double          radius    = cylinder_model_.radius;
-            Eigen::Vector3f center    = cylinder_model_.bottom_center;
-            int             ring_pts  = 72;
+            Eigen::Vector3f                     axis_norm = cylinder_model_.axis.normalized();
+            Eigen::Vector3f                     x         = axis_norm.unitOrthogonal();
+            Eigen::Vector3f                     y         = axis_norm.cross(x);
+            double                              radius    = cylinder_model_.radius;
+            Eigen::Vector3f                     center    = cylinder_model_.bottom_center;
+            int                                 ring_pts  = 72;
             for (int i = 0; i < ring_pts; ++i) {
                 double          theta = 2.0 * M_PI * i / ring_pts;
                 Eigen::Vector3f pt    = center + radius * (std::cos(theta) * x + std::sin(theta) * y);
@@ -1483,12 +1639,12 @@ void CylinderFitter::saveVisualizationData() {
         // 4. 青色顶面圆环 (0, 255, 255)
         {
             pcl::PointCloud<pcl::PointXYZ>::Ptr top_ring(new pcl::PointCloud<pcl::PointXYZ>);
-            Eigen::Vector3f axis_norm = cylinder_model_.axis.normalized();
-            Eigen::Vector3f x         = axis_norm.unitOrthogonal();
-            Eigen::Vector3f y         = axis_norm.cross(x);
-            double          radius    = cylinder_model_.radius;
-            Eigen::Vector3f center    = cylinder_model_.top_center;
-            int             ring_pts  = 72;
+            Eigen::Vector3f                     axis_norm = cylinder_model_.axis.normalized();
+            Eigen::Vector3f                     x         = axis_norm.unitOrthogonal();
+            Eigen::Vector3f                     y         = axis_norm.cross(x);
+            double                              radius    = cylinder_model_.radius;
+            Eigen::Vector3f                     center    = cylinder_model_.top_center;
+            int                                 ring_pts  = 72;
             for (int i = 0; i < ring_pts; ++i) {
                 double          theta = 2.0 * M_PI * i / ring_pts;
                 Eigen::Vector3f pt    = center + radius * (std::cos(theta) * x + std::sin(theta) * y);
@@ -1517,16 +1673,15 @@ void CylinderFitter::saveVisualizationData() {
         // 8. 紫色源点到圆柱中点连线 (255, 0, 255)
         color_log << "\n--- Reference Lines ---\n";
         Eigen::Vector3f source_point(0, 0, 0);
-        addLineSegments("8. Source to Cylinder Center (Magenta)", source_point, 
-                       cylinder_model_.geo_center, 255, 0, 255, 100);
+        addLineSegments("8. Source to Cylinder Center (Magenta)", source_point, cylinder_model_.geo_center, 255, 0, 255,
+                        100);
 
         // 9. 黄色源点到圆柱底面中心连线 (255, 255, 0)
-        addLineSegments("9. Source to Bottom Center (Yellow)", source_point, 
-                       cylinder_model_.bottom_center, 255, 255, 0, 100);
+        addLineSegments("9. Source to Bottom Center (Yellow)", source_point, cylinder_model_.bottom_center, 255, 255, 0,
+                        100);
 
         // 10. 青色源点到圆柱顶面中心连线 (0, 255, 255)
-        addLineSegments("10. Source to Top Center (Cyan)", source_point, 
-                       cylinder_model_.top_center, 0, 255, 255, 100);
+        addLineSegments("10. Source to Top Center (Cyan)", source_point, cylinder_model_.top_center, 0, 255, 255, 100);
 
         // 11. 绿色Y轴正方向 (0, 255, 0)
         color_log << "\n--- Y Axis Reference ---\n";
@@ -1538,20 +1693,19 @@ void CylinderFitter::saveVisualizationData() {
         color_log << "12. Slice Centers (Green) - " << slices_data_.size() << " slices\n";
         for (const auto &slice : slices_data_) {
             // 为了让点显示得更大，在中心点周围添加多个相同颜色的点（形成一个小球）
-            Eigen::Vector3f center_pos(slice.center_mm.x() / 1000.0f, 
-                                       slice.center_mm.y() / 1000.0f, 
+            Eigen::Vector3f center_pos(slice.center_mm.x() / 1000.0f, slice.center_mm.y() / 1000.0f,
                                        slice.center_mm.z() / 1000.0f);
-            const float sphere_radius = 0.015f; // 15mm 半径
-            int sphere_samples = 20; // 采样点数
-            
+            const float     sphere_radius  = 0.015f; // 15mm 半径
+            int             sphere_samples = 20;     // 采样点数
+
             for (int s = 0; s < sphere_samples; ++s) {
                 float theta = 2.0f * M_PI * s / sphere_samples;
                 for (int t = 0; t < 3; ++t) {
                     float phi = M_PI * t / 3.0f;
-                    float x = sphere_radius * std::sin(phi) * std::cos(theta);
-                    float y = sphere_radius * std::sin(phi) * std::sin(theta);
-                    float z = sphere_radius * std::cos(phi);
-                    
+                    float x   = sphere_radius * std::sin(phi) * std::cos(theta);
+                    float y   = sphere_radius * std::sin(phi) * std::sin(theta);
+                    float z   = sphere_radius * std::cos(phi);
+
                     pcl::PointXYZRGB rgb_pt;
                     rgb_pt.x = center_pos.x() + x;
                     rgb_pt.y = center_pos.y() + y;
@@ -1569,20 +1723,19 @@ void CylinderFitter::saveVisualizationData() {
         color_log << "13. Slice Work Points (Blue) - " << slices_data_.size() << " work points\n";
         for (const auto &slice : slices_data_) {
             // 为了让点显示得更大，在工作点周围添加多个相同颜色的点（形成一个小球）
-            Eigen::Vector3f work_pos(slice.work_mm.x() / 1000.0f, 
-                                     slice.work_mm.y() / 1000.0f, 
+            Eigen::Vector3f work_pos(slice.work_mm.x() / 1000.0f, slice.work_mm.y() / 1000.0f,
                                      slice.work_mm.z() / 1000.0f);
-            const float sphere_radius = 0.015f; // 15mm 半径
-            int sphere_samples = 20; // 采样点数
-            
+            const float     sphere_radius  = 0.015f; // 15mm 半径
+            int             sphere_samples = 20;     // 采样点数
+
             for (int s = 0; s < sphere_samples; ++s) {
                 float theta = 2.0f * M_PI * s / sphere_samples;
                 for (int t = 0; t < 3; ++t) {
                     float phi = M_PI * t / 3.0f;
-                    float x = sphere_radius * std::sin(phi) * std::cos(theta);
-                    float y = sphere_radius * std::sin(phi) * std::sin(theta);
-                    float z = sphere_radius * std::cos(phi);
-                    
+                    float x   = sphere_radius * std::sin(phi) * std::cos(theta);
+                    float y   = sphere_radius * std::sin(phi) * std::sin(theta);
+                    float z   = sphere_radius * std::cos(phi);
+
                     pcl::PointXYZRGB rgb_pt;
                     rgb_pt.x = work_pos.x() + x;
                     rgb_pt.y = work_pos.y() + y;
@@ -1610,15 +1763,15 @@ void CylinderFitter::saveVisualizationData() {
         }
 
         // 设置点云宽度和高度
-        colored_cloud->width  = colored_cloud->size();
-        colored_cloud->height = 1;
+        colored_cloud->width    = colored_cloud->size();
+        colored_cloud->height   = 1;
         colored_cloud->is_dense = true;
 
         // 保存带颜色的点云
         std::string colored_pcd = res_dir + "/cylinder_visualization_colored_" + std::string(time_str) + ".pcd";
         if (pcl::io::savePCDFileBinary(colored_pcd, *colored_cloud) == 0) {
-            ROS_INFO("✓ Saved colored visualization data to %s (%zu points)", colored_pcd.c_str(), 
-                    colored_cloud->size());
+            ROS_INFO("✓ Saved colored visualization data to %s (%zu points)", colored_pcd.c_str(),
+                     colored_cloud->size());
         } else {
             ROS_ERROR("✗ Failed to save colored visualization data");
         }
@@ -1636,10 +1789,10 @@ void CylinderFitter::saveVisualizationData() {
         color_log << "Slice Work Points (Blue): " << (slices_data_.size() * 60) << "\n";
         color_log << "Slice Axis Centers: " << slices_data_.size() << "\n";
         color_log.close();
-        
+
         ROS_INFO("✓ Saved visualization color information to %s", color_log_file.c_str());
 
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         ROS_ERROR("Error saving visualization data: %s", e.what());
     }
 }
@@ -1655,9 +1808,8 @@ void CylinderFitter::viewerThread() {
     }
 }
 
-
 // 辅助向量操作实现
-double CylinderFittingNode::norm(const std::vector<double>& v) const {
+double CylinderFitter::norm(const std::vector<double> &v) const {
     if (v.size() != 3) throw std::invalid_argument("Vector must be 3-dimensional for norm calculation.");
     double sum_of_squares = 0.0;
     for (double val : v) {
@@ -1666,11 +1818,7 @@ double CylinderFittingNode::norm(const std::vector<double>& v) const {
     return std::sqrt(sum_of_squares);
 }
 
-std::vector<double> CylinderFittingNode::cross_product(const std::vector<double>& a, const std::vector<double>& b) const {
+std::vector<double> CylinderFitter::cross_product(const std::vector<double> &a, const std::vector<double> &b) const {
     if (a.size() != 3 || b.size() != 3) throw std::invalid_argument("Vectors must be 3-dimensional for cross product.");
-    return {
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0]
-    };
+    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
 }
