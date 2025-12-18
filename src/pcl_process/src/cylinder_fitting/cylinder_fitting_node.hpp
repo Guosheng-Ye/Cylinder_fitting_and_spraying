@@ -59,6 +59,7 @@ public:
 public:
     /// @brief 圆柱模型结构体
     struct CylinderFitterParams {
+        // 圆柱模型参数
         int    min_inliers{300};         // 最小内点数
         int    max_inliers{600};         // 最大内点数
         double min_inlier_ratio{0.02};   // 最小内点比例
@@ -70,14 +71,15 @@ public:
         double max_radial_rel_std{0.15}; // 最大径向相对标准差
 
         // 切片参数
-        double slice_height_{600.00}; // 切片高度（毫米）
-        double slice_width_{300.00};  // 切片宽度（毫米）
-        double slice_distance_{1150}; // 喷头距离圆柱表面偏移为1150mm
+        double slice_distance_{1150}; // 喷头距离圆柱表面偏移 (毫米)
+        double step_height_{600.00};  // 工作区域单次喷幅高(mm)
+        double step_width_{300.00};   // 工作区域单次喷幅宽(mm)
 
         // 工艺参数
         double r_initial_{0.50};     // 初始搭接比例0.5
         double robot_R_arm_{1500.0}; // 机械臂最大臂长1500mm
-        double work_width_{300.0};   // 喷幅300mm
+        int    work_mode{2};         // 工作模式 1 手动,2 自动 动态计算回传
+        int    width_param{0};       // 宽度参数
     };
     void                        setFittingParams(const CylinderFitterParams &p) { fitting_params_ = p; }
     const CylinderFitterParams &fittingParams() const { return fitting_params_; }
@@ -137,6 +139,15 @@ private:
     std::vector<double> cylinder_center_convert2robot_base(const std::vector<double> target_pose,
                                                            const std::vector<double> spray_center,
                                                            const std::vector<double> circle_center);
+
+    /// @brief 计算虚拟机械臂原点方案下的 P_cyl
+    /// @param geo_center_m 圆柱几何中心（雷达坐标系，单位：m）
+    /// @param cylinder_radius_mm 圆柱半径（mm）
+    /// @param work_distance_mm 工作距离（mm）
+    /// @param z_center_mm 输出的P_cyl的z坐标（工作高度中心，mm）
+    /// @return P_cyl_eigen 圆柱轴线上一点相对于虚拟原点的位置（mm）
+    Eigen::Vector3d calculateVirtualBaseP_cyl(const Eigen::Vector3f &geo_center_m, double cylinder_radius_mm,
+                                              double work_distance_mm, double z_center_mm);
 
     /// @brief 辅助向量操作函数
     double              norm(const std::vector<double> &v) const;
@@ -212,6 +223,16 @@ private:
     /// @param axis 轴向
     /// @param radius 半径
     void visualizeResults();
+
+    /// @brief 可视化虚拟机械臂原点、圆柱体、球形工作空间和覆盖角度范围
+    /// @param virtual_base_pos_mm 虚拟机械臂原点位置（雷达坐标系，mm）
+    /// @param robot_max_reach_mm 机械臂最大臂长（mm）
+    /// @param coverage_angle_deg 覆盖角度（度）
+    /// @param work_height_center_mm 工作高度中心（mm）
+    /// @param work_height_range_mm 工作高度范围（mm）
+    void visualizeCoverageRange(const Eigen::Vector3d &virtual_base_pos_mm, double robot_max_reach_mm,
+                                double coverage_angle_deg, double work_height_center_mm, double work_height_range_mm);
+
     void printResults();
     void saveVisualizationData();
     void viewerThread();

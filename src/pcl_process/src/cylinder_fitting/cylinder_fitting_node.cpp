@@ -37,10 +37,11 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
     const auto &fp = fitting_params_;
     ROS_WARN("Fitting params: min_inliers=%d, max_inliers=%d, min_inlier_ratio=%.4f, max_inlier_ratio=%.4f, "
              "min_height_m=%.2f, min_radius_m=%.2f, max_radius_m=%.2f, min_radial_rel_std=%.4f, max_radial_rel_std=%.4f"
-             "slice_height=%.2f, slice_weight=%.2f, work_distance:%.2f",
+             "work_distance:%.2f, step_height=%.2f, step_weight=%.2f, r_initial:%.2f, robot_R_arm:%.2f, "
+             "work_mode:%d, width_param:%d",
              fp.min_inliers, fp.max_inliers, fp.min_inlier_ratio, fp.max_inlier_ratio, fp.min_height_m, fp.min_radius_m,
-             fp.max_radius_m, fp.min_radial_rel_std, fp.max_radial_rel_std, fp.slice_height_, fp.slice_width_,
-             fp.slice_distance_);
+             fp.max_radius_m, fp.min_radial_rel_std, fp.max_radial_rel_std, fp.slice_distance_, fp.step_height_,
+             fp.step_width_, fp.r_initial_, fp.robot_R_arm_, fp.work_mode, fp.width_param);
 
     fitCylinderPCL(cloud_, normals);
 
@@ -54,53 +55,80 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
     // 计算圆柱高度并调用切片
     if (hasModel()) {
         ROS_ERROR("[MAX SLICE ANGLE] Cal max slice angle...");
-        // TODO 传入圆柱中心坐标，需要基于机械臂基坐标系
+        // 自动作业，动态计算optimized_slice_width_mm
+        if (fp.work_mode == 2) {
+            ROS_INFO("Automatic mode: calculating optimal slice width...");
+            PlanningInputs inputs;
+            // 获取圆柱参数（雷达坐标系mm）
+            inputs.r_cyl  = cylinder_model_.radius * 1000.0;
+            inputs.V_axis = {cylinder_model_.axis.x(), cylinder_model_.axis.y(), cylinder_model_.axis.z() * (-1.0)};
 
-        PlanningInputs inputs; //得到圆柱拟合结果
-        // 获取圆柱轴线上一点(基于机械臂基坐标系)
-        // inputs.P_cyl  = {cylinder_model_.bottom_center.x() * 1000.0, cylinder_model_.bottom_center.y() * 1000.0,
-        //                  cylinder_model_.bottom_center.z() * 1000.0};
-        inputs.V_axis = {cylinder_model_.axis.x(), cylinder_model_.axis.y(), cylinder_model_.axis.z() * (-1.0)};
-        inputs.r_cyl  = cylinder_model_.radius * 1000.0;
+            // 使用虚拟机械臂原点方案计算 P_cyl
+            // z_center_mm: 工作高度中心,固定值400mm作为工作高度中心
+            double          z_center_mm = 400.0; // TODO: 可以根据实际工作高度范围计算
+            Eigen::Vector3d P_cyl_eigen =
+                calculateVirtualBaseP_cyl(cylinder_model_.geo_center, inputs.r_cyl, fp.slice_distance_, z_center_mm);
+            inputs.P_cyl = {P_cyl_eigen.x(), P_cyl_eigen.y(), z_center_mm}; //  P_cyl_eigen.z()};
 
-        // cal test data
-        inputs.P_cyl = {-996.669, -1112.73, 480.369};
-        // inputs.V_axis = {-0.00514, -0.02479, -0.999679};
-        // inputs.r_cyl  = 650.0;
-        // cal test data
+            // 计算虚拟原点位置（用于可视化）
+            Eigen::Vector3d geo_center_mm     = cylinder_model_.geo_center.cast<double>() * 1000.0;
+            double          virtual_base_dist = inputs.r_cyl + fp.slice_distance_;
+            Eigen::Vector3d geo_center_xy(geo_center_mm.x(), geo_center_mm.y(), 0.0);
+            Eigen::Vector3d virtual_base_pos_mm;
+            if (geo_center_xy.norm() > 1e-6) {
+                Eigen::Vector3d dir_xy  = -geo_center_xy.normalized();
+                virtual_base_pos_mm     = geo_center_mm + dir_xy * virtual_base_dist;
+                virtual_base_pos_mm.z() = 0.0;
+            } else {
+                virtual_base_pos_mm = Eigen::Vector3d(virtual_base_dist, 0.0, 0.0);
+            }
 
-        ROS_ERROR(
-            "Fitted cylinder axis point: [%.2f, %.2f, %.2f] mm, axis direction: [%.4f, %.4f, %.4f], radius: %.2f mm",
-            inputs.P_cyl[0], inputs.P_cyl[1], inputs.P_cyl[2], inputs.V_axis[0], inputs.V_axis[1], inputs.V_axis[2],
-            inputs.r_cyl);
+            ROS_ERROR("Fitted cylinder - P_cyl (relative to virtual base): [%.2f, %.2f, %.2f] mm, "
+                      "axis direction: [%.4f, %.4f, %.4f], radius: %.2f mm",
+                      inputs.P_cyl[0], inputs.P_cyl[1], inputs.P_cyl[2], inputs.V_axis[0], inputs.V_axis[1],
+                      inputs.V_axis[2], inputs.r_cyl);
 
-        // 机械臂工作区域(入参)
-        inputs.robot_R_arm = fp.robot_R_arm_;    // 机械臂最大臂长 R_arm
-        inputs.D_offset    = fp.slice_distance_; // 喷涂距离 D
-        inputs.H_region    = fp.slice_height_;   // fp.slice_height_; // 总工作高度 H
+            // 机械臂工作区域(入参)
+            inputs.robot_R_arm = fp.robot_R_arm_;    // 机械臂最大臂长 R_arm
+            inputs.D_offset    = fp.slice_distance_; // 喷涂距离 D
+            inputs.H_region    = fp.step_height_;    // fp.slice_height_; // 总工作高度 H
 
-        // 喷涂工艺参数
-        inputs.d_spray   = fp.work_width_;   // 喷幅 300
-        inputs.r_initial = 0.5;              // 初始搭接比例 50%
-        inputs.h_slice   = fp.slice_height_; // fp.slice_height_; // 切片高度
+            // 喷涂工艺参数
+            inputs.d_spray   = fp.step_width_;  // 喷幅 300
+            inputs.r_initial = fp.r_initial_;   // 初始搭接比例 50%
+            inputs.h_slice   = fp.step_height_; // fp.slice_height_; // 切片高度
 
-        // 计算输出
-        PlanningOutputs outputs = execute_slice_planning(inputs);
-        ROS_ERROR("Calculated max coverage angle: %.2f deg, optimal slice angle: %.2f deg, final overlap ratio: %.2f, "
-                  "status: %s",
-                  outputs.max_coverage_angle, outputs.optimal_slice_angle, outputs.final_overlap_ratio,
-                  outputs.status_message.c_str());
+            // 计算输出
+            PlanningOutputs outputs = execute_slice_planning(inputs);
+            ROS_ERROR(
+                "Calculated max coverage angle: %.2f deg, optimal slice angle: %.2f deg, final overlap ratio: %.2f, "
+                "status: %s",
+                outputs.max_coverage_angle, outputs.optimal_slice_angle, outputs.final_overlap_ratio,
+                outputs.status_message.c_str());
 
-        // 将优化后的切片角度转换为切片宽度（毫米）
-        // slice_width_mm = radius_mm * angle_rad = radius_mm * (angle_deg * π/180)
-        double radius_mm                = cylinder_model_.radius * 1000.0;
-        double optimized_slice_width_mm = radius_mm * (outputs.optimal_slice_angle * M_PI / 180.0);
+            // ====== 可视化覆盖范围 ======
+            visualizeCoverageRange(virtual_base_pos_mm,
+                                   inputs.robot_R_arm,         // 机械臂最大臂长
+                                   outputs.max_coverage_angle, // 最大覆盖角度
+                                   z_center_mm,                // 工作高度中心
+                                   inputs.H_region);           // 工作高度范围
 
-        ROS_INFO("Converting slice angle to width: %.4f deg -> %.2f mm (radius: %.2f mm)", outputs.optimal_slice_angle,
-                 optimized_slice_width_mm, radius_mm);
+            // 将优化后的切片角度转换为切片宽度（毫米）
+            // slice_width_mm = radius_mm * angle_rad = radius_mm * (angle_deg * π/180)
+            double radius_mm                = cylinder_model_.radius * 1000.0;
+            double optimized_slice_width_mm = radius_mm * (outputs.optimal_slice_angle * M_PI / 180.0);
 
-        // 使用优化后的切片宽度进行切片
-        sliceCylinder(180.0, fp.slice_height_, optimized_slice_width_mm);
+            ROS_INFO("Converting slice angle to width: %.4f deg -> %.2f mm (radius: %.2f mm)",
+                     outputs.optimal_slice_angle, optimized_slice_width_mm, radius_mm);
+
+            // 使用优化后的切片宽度进行切片
+            sliceCylinder(180.0, fp.step_height_, optimized_slice_width_mm);
+            
+        } else if (fp.work_mode == 1) {
+            // 手动作业，使用设定的step_width_进行切片
+            ROS_INFO("Manual mode: using preset slice width %.2f mm for slicing.", fp.step_width_);
+            sliceCylinder(180.0, fp.step_height_, fp.step_width_);
+        }
 
         // 打印结果
         printResults();
@@ -112,50 +140,59 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
     }
 }
 
-/// @brief
-/// @param target_post 机械臂基座
-/// @param spray_center 喷涂作业点
-/// @param circle_center 圆柱中心坐标
-//  if (pose_ptr)
-// {
-//     // 任意角度变换：假设 theta 为小臂相对于曲臂坐标系的旋转角度
-//     // theta = 90度 + arctan(spray_center_y / spray_center_x)
-//     // 曲臂指向喷涂中心方向，且小臂相对于曲臂有 90 度的固定旋转
-//     double yaw   = std::atan2(ti.spray_center[1], ti.spray_center[0]);
-//     double theta = M_PI / 2.0 + yaw;
-//     double cos_t = std::cos(theta);
-//     double sin_t = std::sin(theta);
-//     // 计算全局坐标系下的差值向量 (Target -> Spray Center)
-//     double dx_s = ti.spray_center[0] - pose_ptr->target_pose.position.x * 1000;
-//     // 列补偿：若该目标属于“大 x 列”，根据桥接节点对 x 额外 -0.3m 的调整，在此再手动减小 300mm
-//     if (pose_ptr->target_pose.position.x > 0.8)
-//     {
-//         dx_s -= 500.0; // 额外减小 500mm
-//         ROS_INFO_STREAM_THROTTLE(1.0, "[robot_bt_manager] dx_s column compensation applied (x>1.0m): -300mm");
-//     }
-//     double dy_s = ti.spray_center[1] - pose_ptr->target_pose.position.y * 1000 - 700;
-//     // 旋转矩阵逆变换 (R^T) 转换到小臂局部坐标系
-//     sx = dx_s * cos_t + dy_s * sin_t;
-//     sy = -dx_s * sin_t + dy_s * cos_t;
-//     sz = ti.spray_center[2] - pose_ptr->target_pose.position.z * 1000;
-//     // 同理计算 circle_center
-//     double dx_c = ti.circle_center[0] - pose_ptr->target_pose.position.x * 1000;
-//     if (pose_ptr->target_pose.position.x > 0.8)
-//     {
-//         dx_c -= 500.0; // 额外减小 500mm
-//         ROS_INFO_STREAM_THROTTLE(1.0, "[robot_bt_manager] dx_s column compensation applied (x>1.0m): -300mm");
-//     }
-//     double dy_c = ti.circle_center[1] - pose_ptr->target_pose.position.y * 1000 - 700;
-//     cx = dx_c * cos_t + dy_c * sin_t;
-//     cy = -dx_c * sin_t + dy_c * cos_t;
-//     cz = ti.circle_center[2] - pose_ptr->target_pose.position.z * 1000;
-// }
-// else
-// {
-//     ROS_WARN_STREAM_THROTTLE(
-//         2.0, "[robot_bt_manager] buildTargetInfoJson: target id="
-//                  << id << " 未找到姿态(g_targets/g_finished_target_pose_cache均无); spray_center 未转换");
-// }
+/// @brief 计算虚拟机械臂原点方案下的 P_cyl
+/// @param geo_center_m 圆柱几何中心（雷达坐标系，单位：m）
+/// @param cylinder_radius_mm 圆柱半径（mm）
+/// @param work_distance_mm 工作距离（mm）
+/// @param z_center_mm 输出的P_cyl的z坐标（工作高度中心，mm）
+/// @return P_cyl_eigen 圆柱轴线上一点相对于虚拟原点的位置（mm）
+Eigen::Vector3d CylinderFitter::calculateVirtualBaseP_cyl(const Eigen::Vector3f &geo_center_m,
+                                                          double cylinder_radius_mm, double work_distance_mm,
+                                                          double z_center_mm) {
+    // ============ 虚拟机械臂原点方案 ============
+    // 1. 在雷达坐标系下计算虚拟机械臂原点位置
+    // 2. 虚拟原点到圆柱轴线的距离 = R_cyl + D_work（工作距离）
+    // 3. 以虚拟原点为基准计算 P_cyl，从而得到最大覆盖角
+    // 4. 切片基于圆柱表面，与虚拟原点位置无关
+    // 5. 实际工作点从切片中心向外延伸相同的工作距离
+
+    // 圆柱几何中心（雷达坐标系，单位：m -> mm）
+    Eigen::Vector3d geo_center_mm = geo_center_m.cast<double>() * 1000.0;
+
+    // 虚拟原点到轴线的距离
+    double virtual_base_dist = cylinder_radius_mm + work_distance_mm;
+
+    // 计算虚拟机械臂原点：在XY平面上，从圆柱中心向外延伸
+    // 选择几何中心投影到XY平面的反方向（朝向激光雷达的方向）
+    Eigen::Vector3d geo_center_xy(geo_center_mm.x(), geo_center_mm.y(), 0.0);
+    double          xy_dist = geo_center_xy.norm();
+
+    Eigen::Vector3d virtual_base_pos;
+    if (xy_dist > 1e-6) {
+        // 虚拟原点在圆柱中心的XY投影方向上，距离轴线 virtual_base_dist
+        Eigen::Vector3d dir_xy = -geo_center_xy.normalized(); // 指向原点方向
+        virtual_base_pos       = geo_center_mm + dir_xy * virtual_base_dist;
+        virtual_base_pos.z()   = 0.0; // 虚拟原点在z=0平面上
+    } else {
+        // 圆柱中心在原点附近，选择X轴正方向
+        virtual_base_pos = Eigen::Vector3d(virtual_base_dist, 0.0, 0.0);
+    }
+
+    ROS_INFO("Virtual robot base position (lidar frame): [%.2f, %.2f, %.2f] mm", virtual_base_pos.x(),
+             virtual_base_pos.y(), virtual_base_pos.z());
+    ROS_INFO("Distance from virtual base to cylinder axis: %.2f mm (R=%.2f + D_work=%.2f)", virtual_base_dist,
+             cylinder_radius_mm, work_distance_mm);
+
+    // 计算圆柱轴线上一点相对于虚拟原点的位置
+    // P_cyl = geo_center - virtual_base_pos （以虚拟原点为原点）
+    Eigen::Vector3d P_cyl_eigen = geo_center_mm - virtual_base_pos;
+
+    // 使用指定的z坐标（工作高度中心）
+    P_cyl_eigen.z() = z_center_mm;
+
+    return P_cyl_eigen;
+}
+
 /// @return
 std::vector<double> CylinderFitter::cylinder_center_convert2robot_base(const std::vector<double> target_pose,
                                                                        const std::vector<double> spray_center,
@@ -194,6 +231,7 @@ std::vector<double> CylinderFitter::cylinder_center_convert2robot_base(const std
     double cz = circle_center[2] - target_pose[2] * 1000;
     std::cout << " Converted spray center to robot base: [" << sx << "," << sy << "," << sz << "] mm" << std::endl;
     std::cout << " Converted circle center to robot base: [" << cx << "," << cy << "," << cz << "] mm" << std::endl;
+    return {cx, cy, cz};
 }
 
 /// @brief 法线估计
@@ -973,6 +1011,7 @@ PlanningOutputs CylinderFitter::execute_slice_planning(const PlanningInputs &inp
 
         if (outputs.max_coverage_angle <= 0.0) {
             // 几何计算失败或无法触及
+            ROS_ERROR("Geometric calculation failed or cannot reach the cylinder surface.");
             outputs.optimal_slice_angle = 0.0;
             outputs.final_overlap_ratio = inputs.r_initial;
             return outputs;
@@ -1446,6 +1485,231 @@ void CylinderFitter::visualizeResults() {
                          .norm() *
                      1000.0; // 米 -> mm
     ROS_INFO("[Distance] Geo center: %f mm, Bottom center: %f mm", dist_3d, dist_xy);
+}
+
+/// @brief 可视化虚拟机械臂原点、圆柱体、球形工作空间和覆盖角度范围
+/// @param virtual_base_pos_mm
+/// @param robot_max_reach_mm
+/// @param coverage_angle_deg
+/// @param work_height_center_mm
+/// @param work_height_range_mm
+// 元素	            颜色	说明
+// 虚拟机械臂原点	    🔴  红色大球	显示虚拟机械臂基座位置
+// 虚拟原点到圆柱连线	🟣  紫色	    显示从虚拟原点到圆柱几何中心的连线
+// 球形工作空间	       🔴   淡红色线框	机械臂最大臂长形成的球体（多圆环表示）
+// 有效臂展圆   	   🟡   黄色	    在工作高度上下限处的有效水平臂展范围
+// 覆盖区域	           🟢   绿色点云	圆柱表面上被覆盖的扇形区域
+// 覆盖边界线	       🟢   亮绿色	    覆盖角度的左右边界线
+// 工作高度范围	       🟣   品红色	    工作高度的上下限
+// 臂展射线	           🔵   青色	    从虚拟原点到覆盖边界工作点的射线
+void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_pos_mm, double robot_max_reach_mm,
+                                            double coverage_angle_deg, double work_height_center_mm,
+                                            double work_height_range_mm) {
+    if (!hasModel()) return;
+
+    std::lock_guard<std::mutex> lock(viewer_mutex_);
+
+    // 单位转换：mm -> m（PCL可视化使用米）
+    double          scale                = 0.001;
+    Eigen::Vector3f virtual_base_m       = (virtual_base_pos_mm * scale).cast<float>();
+    double          robot_reach_m        = robot_max_reach_mm * scale;
+    double          work_height_center_m = work_height_center_mm * scale;
+    double          work_height_range_m  = work_height_range_mm * scale;
+
+    // 圆柱参数
+    Eigen::Vector3f geo_center_m = cylinder_model_.geo_center;
+    Eigen::Vector3f axis_unit    = cylinder_model_.axis.normalized();
+    double          radius_m     = cylinder_model_.radius;
+
+    // 1. ====== 虚拟机械臂原点（大红球） ======
+    viewer_->addSphere(pcl::PointXYZ(virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z()), 0.05, 1.0, 0.0, 0.0,
+                       "virtual_robot_base");
+
+    // 添加文字标注
+    viewer_->addText3D("Virtual Base", pcl::PointXYZ(virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z() + 0.1),
+                       0.05, 1.0, 0.0, 0.0, "virtual_base_label");
+
+    // 2. ====== 虚拟原点到圆柱几何中心的连线（紫色） ======
+    viewer_->addLine(pcl::PointXYZ(virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z()),
+                     pcl::PointXYZ(geo_center_m.x(), geo_center_m.y(), geo_center_m.z()), 1.0, 0.0, 1.0,
+                     "virtual_base_to_cylinder");
+
+    // 3. ====== 球形工作空间（半透明红色线框） ======
+    // 用多个圆环表示球体
+    int n_rings           = 12;
+    int n_points_per_ring = 36;
+    for (int i = 0; i <= n_rings; ++i) {
+        double phi         = M_PI * i / n_rings; // 从0到π
+        double ring_radius = robot_reach_m * std::sin(phi);
+        double ring_z      = robot_reach_m * std::cos(phi);
+
+        pcl::PointCloud<pcl::PointXYZ>::Ptr ring(new pcl::PointCloud<pcl::PointXYZ>);
+        for (int j = 0; j <= n_points_per_ring; ++j) {
+            double theta = 2.0 * M_PI * j / n_points_per_ring;
+            float  x     = virtual_base_m.x() + ring_radius * std::cos(theta);
+            float  y     = virtual_base_m.y() + ring_radius * std::sin(theta);
+            float  z     = virtual_base_m.z() + ring_z;
+            ring->push_back(pcl::PointXYZ(x, y, z));
+        }
+
+        std::string                                                     ring_id = "sphere_ring_h_" + std::to_string(i);
+        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> ring_color(ring, 255, 100, 100);
+        viewer_->addPointCloud<pcl::PointXYZ>(ring, ring_color, ring_id);
+        viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, ring_id);
+    }
+
+    // 垂直方向的圆环
+    for (int i = 0; i < 6; ++i) {
+        double theta_base = M_PI * i / 6;
+
+        pcl::PointCloud<pcl::PointXYZ>::Ptr v_ring(new pcl::PointCloud<pcl::PointXYZ>);
+        for (int j = 0; j <= n_points_per_ring; ++j) {
+            double phi = 2.0 * M_PI * j / n_points_per_ring;
+            float  x   = virtual_base_m.x() + robot_reach_m * std::sin(phi) * std::cos(theta_base);
+            float  y   = virtual_base_m.y() + robot_reach_m * std::sin(phi) * std::sin(theta_base);
+            float  z   = virtual_base_m.z() + robot_reach_m * std::cos(phi);
+            v_ring->push_back(pcl::PointXYZ(x, y, z));
+        }
+
+        std::string                                                     ring_id = "sphere_ring_v_" + std::to_string(i);
+        pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> ring_color(v_ring, 255, 100, 100);
+        viewer_->addPointCloud<pcl::PointXYZ>(v_ring, ring_color, ring_id);
+        viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, ring_id);
+    }
+
+    // 4. ====== 有效水平臂展圆（在工作高度处） ======
+    double z_work_max  = work_height_center_m + work_height_range_m / 2.0;
+    double z_work_min  = work_height_center_m - work_height_range_m / 2.0;
+    double delta_z_max = std::max(std::abs(z_work_max - virtual_base_m.z()), std::abs(z_work_min - virtual_base_m.z()));
+
+    double r_eff_sq = robot_reach_m * robot_reach_m - delta_z_max * delta_z_max;
+    double r_eff_m  = (r_eff_sq > 0) ? std::sqrt(r_eff_sq) : 0.0;
+
+    // 在最远工作高度处画有效臂展圆（黄色）
+    pcl::PointCloud<pcl::PointXYZ>::Ptr eff_ring_top(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr eff_ring_bottom(new pcl::PointCloud<pcl::PointXYZ>);
+    for (int j = 0; j <= 72; ++j) {
+        double theta = 2.0 * M_PI * j / 72;
+        float  x     = virtual_base_m.x() + r_eff_m * std::cos(theta);
+        float  y     = virtual_base_m.y() + r_eff_m * std::sin(theta);
+        eff_ring_top->push_back(pcl::PointXYZ(x, y, z_work_max));
+        eff_ring_bottom->push_back(pcl::PointXYZ(x, y, z_work_min));
+    }
+
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> eff_color_top(eff_ring_top, 255, 255, 0);
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> eff_color_bottom(eff_ring_bottom, 255, 200, 0);
+    viewer_->addPointCloud<pcl::PointXYZ>(eff_ring_top, eff_color_top, "eff_reach_ring_top");
+    viewer_->addPointCloud<pcl::PointXYZ>(eff_ring_bottom, eff_color_bottom, "eff_reach_ring_bottom");
+    viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "eff_reach_ring_top");
+    viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
+                                              "eff_reach_ring_bottom");
+
+    // 5. ====== 覆盖角度范围（绿色扇形区域） ======
+    // 计算从虚拟原点到圆柱中心的方向（作为覆盖角度的中心方向）
+    Eigen::Vector3f to_cylinder = geo_center_m - virtual_base_m;
+    to_cylinder.z()             = 0; // 投影到XY平面
+    to_cylinder.normalize();
+
+    double half_angle_rad = coverage_angle_deg * M_PI / 360.0;                  // 半角
+    double r_task_m       = radius_m + fitting_params_.slice_distance_ * scale; // 工作半径
+
+    // 在圆柱表面绘制覆盖区域（绿色）
+    pcl::PointCloud<pcl::PointXYZ>::Ptr coverage_surface(new pcl::PointCloud<pcl::PointXYZ>);
+
+    // 构建圆柱局部坐标系
+    Eigen::Vector3f cyl_x = axis_unit.unitOrthogonal();
+    Eigen::Vector3f cyl_y = axis_unit.cross(cyl_x);
+
+    // 计算覆盖起始角度
+    // 从圆柱中心到虚拟原点的方向
+    Eigen::Vector3f from_cyl_to_base = virtual_base_m - geo_center_m;
+    from_cyl_to_base = from_cyl_to_base - from_cyl_to_base.dot(axis_unit) * axis_unit; // 投影到垂直于轴线的平面
+    from_cyl_to_base.normalize();
+
+    double base_angle = std::atan2(from_cyl_to_base.dot(cyl_y), from_cyl_to_base.dot(cyl_x));
+
+    // 绘制覆盖扇形
+    int n_angle_steps  = 30;
+    int n_height_steps = 15;
+    for (int h = 0; h <= n_height_steps; ++h) {
+        double z_local = z_work_min + (z_work_max - z_work_min) * h / n_height_steps;
+        // 找到该高度对应的轴线上的点
+        double          t          = (z_local - geo_center_m.z()) / axis_unit.z();
+        Eigen::Vector3f axis_point = geo_center_m + t * axis_unit;
+
+        for (int a = 0; a <= n_angle_steps; ++a) {
+            double angle_offset = -half_angle_rad + 2.0 * half_angle_rad * a / n_angle_steps;
+            double theta        = base_angle + angle_offset;
+
+            Eigen::Vector3f surface_point = axis_point + radius_m * (std::cos(theta) * cyl_x + std::sin(theta) * cyl_y);
+            coverage_surface->push_back(pcl::PointXYZ(surface_point.x(), surface_point.y(), surface_point.z()));
+        }
+    }
+
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> coverage_color(coverage_surface, 0, 255, 0);
+    viewer_->addPointCloud<pcl::PointXYZ>(coverage_surface, coverage_color, "coverage_surface");
+    viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, "coverage_surface");
+
+    // 6. ====== 覆盖边界线（亮绿色） ======
+    // 左边界
+    pcl::PointCloud<pcl::PointXYZ>::Ptr left_boundary(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr right_boundary(new pcl::PointCloud<pcl::PointXYZ>);
+
+    for (int h = 0; h <= n_height_steps * 2; ++h) {
+        double          z_local    = z_work_min + (z_work_max - z_work_min) * h / (n_height_steps * 2);
+        double          t          = (z_local - geo_center_m.z()) / axis_unit.z();
+        Eigen::Vector3f axis_point = geo_center_m + t * axis_unit;
+
+        double theta_left  = base_angle - half_angle_rad;
+        double theta_right = base_angle + half_angle_rad;
+
+        Eigen::Vector3f left_pt = axis_point + radius_m * (std::cos(theta_left) * cyl_x + std::sin(theta_left) * cyl_y);
+        Eigen::Vector3f right_pt =
+            axis_point + radius_m * (std::cos(theta_right) * cyl_x + std::sin(theta_right) * cyl_y);
+
+        left_boundary->push_back(pcl::PointXYZ(left_pt.x(), left_pt.y(), left_pt.z()));
+        right_boundary->push_back(pcl::PointXYZ(right_pt.x(), right_pt.y(), right_pt.z()));
+    }
+
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> boundary_color(left_boundary, 100, 255, 100);
+    viewer_->addPointCloud<pcl::PointXYZ>(left_boundary, boundary_color, "left_boundary");
+    viewer_->addPointCloud<pcl::PointXYZ>(right_boundary, boundary_color, "right_boundary");
+    viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "left_boundary");
+    viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "right_boundary");
+
+    // 7. ====== 工作高度范围线（品红色） ======
+    viewer_->addLine(pcl::PointXYZ(geo_center_m.x(), geo_center_m.y(), z_work_min),
+                     pcl::PointXYZ(geo_center_m.x(), geo_center_m.y(), z_work_max), 1.0, 0.0, 1.0, "work_height_range");
+
+    // 8. ====== 从虚拟原点到覆盖边界的射线（显示臂展约束） ======
+    // 计算覆盖边界在工作半径上的点
+    double          z_mid          = work_height_center_m;
+    double          t_mid          = (z_mid - geo_center_m.z()) / axis_unit.z();
+    Eigen::Vector3f axis_point_mid = geo_center_m + t_mid * axis_unit;
+
+    double theta_left  = base_angle - half_angle_rad;
+    double theta_right = base_angle + half_angle_rad;
+
+    Eigen::Vector3f left_work_pt =
+        axis_point_mid + r_task_m * (std::cos(theta_left) * cyl_x + std::sin(theta_left) * cyl_y);
+    Eigen::Vector3f right_work_pt =
+        axis_point_mid + r_task_m * (std::cos(theta_right) * cyl_x + std::sin(theta_right) * cyl_y);
+
+    viewer_->addLine(pcl::PointXYZ(virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z()),
+                     pcl::PointXYZ(left_work_pt.x(), left_work_pt.y(), left_work_pt.z()), 0.0, 1.0, 1.0,
+                     "reach_ray_left");
+    viewer_->addLine(pcl::PointXYZ(virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z()),
+                     pcl::PointXYZ(right_work_pt.x(), right_work_pt.y(), right_work_pt.z()), 0.0, 1.0, 1.0,
+                     "reach_ray_right");
+
+    // 输出调试信息
+    ROS_INFO("======== Coverage Visualization ========");
+    ROS_INFO("Virtual Base (m): [%.3f, %.3f, %.3f]", virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z());
+    ROS_INFO("Robot Max Reach: %.2f m", robot_reach_m);
+    ROS_INFO("Effective Reach at Z=%.2f m: %.3f m", delta_z_max + virtual_base_m.z(), r_eff_m);
+    ROS_INFO("Coverage Angle: %.2f deg (half: %.2f deg)", coverage_angle_deg, coverage_angle_deg / 2.0);
+    ROS_INFO("Work Height Range: [%.2f, %.2f] m", z_work_min, z_work_max);
+    ROS_INFO("=========================================");
 }
 
 /// @brief 打印结果
