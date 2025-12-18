@@ -40,7 +40,8 @@ public:
     }
 
 public:
-    void setOption(const float distance, const float width, const float height);
+    void setOption(const float distance, const float step_width, const float step_height, const float lap,
+                   const int arm_reach, const int mode, const int width_param);
 
 private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
@@ -60,7 +61,11 @@ private:
     std::shared_ptr<FlexedArmTF> tf_lidar2_base_; // 雷达到车辆基座坐标变换
 
     // 记录历史值
-    double last_distance_ = -1.0;
-    double last_width_    = -1.0;
-    double last_height_   = -1.0;
+    double last_distance_    = -1.0;
+    double last_step_width_  = -1.0;
+    double last_step_height_ = -1.0;
+    double last_lap_         = -1.0;
+    int    last_arm_reach_   = -1;
+    int    last_mode_        = -1;
+    int    last_width_param_ = -1;
 };

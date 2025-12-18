@@ -68,8 +68,8 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
             for (const auto &slice : slices) {
                 // 坐标转换：Lidar (mm) -> Base (mm)
                 Eigen::Vector3d pos_spray_center(slice.center_mm.x(), slice.center_mm.y(), slice.center_mm.z());
-                Eigen::Vector3d A_base_mm = tf_lidar2_base_->to_base_from_lidar(pos_spray_center);
-                double target_z_base_mm_raised = A_base_mm.z() + MIN_WORK_HEIGHT_MM;
+                Eigen::Vector3d A_base_mm               = tf_lidar2_base_->to_base_from_lidar(pos_spray_center);
+                double          target_z_base_mm_raised = A_base_mm.z() + MIN_WORK_HEIGHT_MM;
 
                 // 如果该切片在 Z 范围内，标记该层为有效
                 if (target_z_base_mm_raised <= working_max_z_base_mm) {
@@ -114,7 +114,8 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
 
                 // 检查该层是否在有效层集合中（同一层只要有一个切片有效，整层都保留）
                 if (valid_layers.find(slice.layer_index) == valid_layers.end()) {
-                    ROS_WARN("Slice ID %d (layer %d) Z (%.2f mm) - entire layer exceeds max working Z (%.2f mm). Skipping.\n",
+                    ROS_WARN("Slice ID %d (layer %d) Z (%.2f mm) - entire layer exceeds max working Z (%.2f mm). "
+                             "Skipping.\n",
                              slice.id + 1, slice.layer_index, target_z_base_mm_raised, working_max_z_base_mm);
                     continue;
                 }
@@ -160,7 +161,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 ti_msg.radius = fitter_->radius() * 1000.0f; // m -> mm
                 // 其他参数
                 ti_msg.angle  = std::round((slice.angle_deg) * 1000.0) / 1000.0;
-                ti_msg.height = fitter_->fittingParams().slice_height_;
+                ti_msg.height = fitter_->fittingParams().step_height_;
 
                 ROS_WARN("Cylinder ID: %d,circle:[%.3f,%.3f,%.3f],=> Zspray_center:[%.3f,%.3f,%.3f], "
                          " => work_point:[%.3f,%.3f,%.3f], "
@@ -191,20 +192,40 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
 
 /// @brief 处理参数回调函数
 /// @param msg
+// float64 distance       # 轨迹点与圆弧表面的距离
+// float64 step_width     # 工作区域单次喷幅(mm)
+// float64 step_height    # 工作区域单次高度(mm)
+// int16   height		  # 工作区总高度，与单次高度成整数倍关系
+// float64 lap            # 两次喷幅搭接比例（0~1之间）
+// int16   arm_reach      # 机械臂臂展(mm)
+// int16   mode           # 1手动 2自动
+// int16   width          # 手动模式下直接透传即可；自动模式需要动态计算后传值
 void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam &msg) {
-    double distance = msg.distance;
-    double width    = msg.width;
-    double height   = msg.height;
+    double distance    = msg.distance;
+    double step_width  = msg.step_width;
+    double step_height = msg.step_height;
+    float  lap         = msg.lap;
+    int    arm_reach   = msg.arm_reach;
+    int    mode        = msg.mode;
+    int    width       = msg.width;
 
-    bool changed = (distance != last_distance_) || (width != last_width_) || (height != last_height_);
+    bool changed = (distance != last_distance_) || (step_width != last_step_width_) ||
+                   (step_height != last_step_height_) || (lap != last_lap_) || (arm_reach != last_arm_reach_) ||
+                   (mode != last_mode_) || (width != last_width_param_);
     if (changed) {
-        ROS_WARN("Process parameters changed: distance=%.2f (was %.2f), width=%.2f (was %.2f), height=%.2f (was %.2f)",
-                 distance, last_distance_, width, last_width_, height, last_height_);
+        ROS_WARN("Process parameters changed: distance=%.2f (was %.2f), step_width=%.2f (was %.2f), step_height=%.2f "
+                 "(was %.2f),lap=%.2f (was %.2f), arm_reach=%d (was %d), mode=%d (was %d), width=%d (was %d)",
+                 distance, last_distance_, step_width, last_step_width_, step_height, last_step_height_, lap, last_lap_,
+                 arm_reach, last_arm_reach_, mode, last_mode_, width, last_width_param_);
 
-        last_distance_ = distance;
-        last_width_    = width;
-        last_height_   = height;
-        setOption(distance, width, height);
+        last_distance_    = distance;
+        last_step_width_  = step_width;
+        last_step_height_ = step_height;
+        last_lap_         = lap;
+        last_arm_reach_   = arm_reach;
+        last_mode_        = mode;
+        last_width_param_ = width;
+        setOption(distance, step_width, step_height, lap, arm_reach, mode, width);
     } else {
         ROS_DEBUG("Process parameters unchanged, skipping setOption call.");
     }
@@ -225,7 +246,16 @@ void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool &msg) {
     }
 }
 
-void CylinderFittingROS::setOption(const float distance, const float width, const float height) {
+/// @brief
+/// @param distance    # 轨迹点与圆弧表面的距离
+/// @param step_width  # 工作区域单次喷幅(mm)
+/// @param step_height # 工作区域单次高度(mm)
+/// @param lap         # 两次喷幅搭接比例（0~1之间）
+/// @param arm_reach   # 机械臂臂展(mm)
+/// @param mode        # 1手动 2自动
+/// @param width_param # 手动模式下直接透传即可；自动模式需要动态计算后传值
+void CylinderFittingROS::setOption(const float distance, const float step_width, const float step_height, const float lap,
+                                   const int arm_reach, const int mode, const int width_param) {
 
     this->fitter_->sliceOptions().surface_       = false; // 弧形面网格
     this->fitter_->sliceOptions().border_        = false; // 切片边框线
@@ -233,21 +263,22 @@ void CylinderFittingROS::setOption(const float distance, const float width, cons
     this->fitter_->sliceOptions().print_centers_ = true;  // 切片中心点
 
     this->fitter_->setFittingParams(CylinderFitter::CylinderFitterParams{
-        .min_inliers        = 300,      // 最小内点数
-        .max_inliers        = 600,      // 最大内点数
-        .min_inlier_ratio   = 0.02,     // 最小内点比例
-        .max_inlier_ratio   = 0.50,     // 最大内点比例
-        .min_height_m       = 1.00,     // 最小高度（米）
-        .min_radius_m       = 0.30,     // 最小半径（米）
-        .max_radius_m       = 0.40,     // 最大半径(米)
-        .min_radial_rel_std = 0.00,     // 最小径向相对标准差
-        .max_radial_rel_std = 0.15,     // 最大径向相对标准差
-        .slice_height_      = height,   // 切片高度（毫米）
-        .slice_width_       = width,    // 切片宽度（毫米）
-        .slice_distance_    = distance, // 喷头工作间距（毫米）
-        .r_initial_         = 0.50,     // 初始搭接比例0.5
-        .robot_R_arm_       = 1500.0,   // 机械臂最大臂长1500mm
-        .work_width_        = width,    // 喷幅（毫米）
+        .min_inliers        = 300,         // 最小内点数
+        .max_inliers        = 600,         // 最大内点数
+        .min_inlier_ratio   = 0.02,        // 最小内点比例
+        .max_inlier_ratio   = 0.50,        // 最大内点比例
+        .min_height_m       = 1.00,        // 最小高度（米）
+        .min_radius_m       = 0.30,        // 最小半径（米）
+        .max_radius_m       = 0.40,        // 最大半径(米)
+        .min_radial_rel_std = 0.00,        // 最小径向相对标准差
+        .max_radial_rel_std = 0.15,        // 最大径向相对标准差
+        .slice_distance_    = distance,    // 喷头工作间距（毫米）
+        .step_height_       = step_height, // 工作区域单次高度(mm)
+        .step_width_        = step_width,  // 工作区域单次喷幅(mm)
+        .r_initial_         = lap,         // 初始搭接比例0.5
+        .robot_R_arm_       = arm_reach,   // 机械臂最大臂长1500mm
+        .work_mode          = mode,        // 工作模式 1 手动 2 自动
+        .width_param        = width_param, // 宽度参数
     });
     ROS_WARN("Cylinder fitting parameters have been set.");
 }
@@ -258,7 +289,7 @@ int main(int argc, char **argv) {
 
     ROS_INFO("CylinderFittingROS node started, waiting for filtered point clouds and main control commands...");
     CylinderFittingROS node(nh);
-    node.setOption(1150, 300, 600);
+    node.setOption(1150, 300, 600, 0.5, 1500, 2, 0);
 
     ros::spin();
     return 0;
