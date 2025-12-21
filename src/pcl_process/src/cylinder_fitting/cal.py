@@ -53,13 +53,13 @@ def calculate_angle_in_robot_frame_corrected(
         f"Distance from cylinder surface to origin along connection line: {dist_surface_to_origin:.2f}")
 
     # 3. --- Calculate effective arm reach R_eff ---
-    R_task = cylinder_radius + offset_dist
+    R_task = cylinder_radius + offset_dist # 圆柱工作半径（圆柱半径 + 喷涂距离）
 
     if Delta_Z_max >= robot_max_reach:
         return 0, "Error: Working height exceeds robot max reach"
 
     # R_eff = Corrected horizontal effective arm reach
-    R_eff = np.sqrt(robot_max_reach ** 2 - Delta_Z_max ** 2)
+    R_eff = np.sqrt(robot_max_reach ** 2 - Delta_Z_max ** 2) # 有效水平臂长
     print(f"Corrected effective horizontal arm reach R_eff: {R_eff:.2f}")
 
     # 4. --- Calculate angle using cosine law (unchanged) ---
@@ -296,12 +296,18 @@ def visualize_robot_cylinder(viz_data):
 
 def main():
     # TEST
-    robot_reach = 1400
+    robot_reach = 1500
     angle, msg, viz_data = calculate_angle_in_robot_frame_corrected(
         robot_max_reach=robot_reach,
-        cylinder_center=[-996.669, -1112.73, 480.369],
-        cylinder_axis=[-0.00514, -0.02479, -0.999679],
-        cylinder_radius=351,
+        # cylinder_center=[-996.669, -1112.73, 480.369],
+        # cylinder_axis=[-0.00514, -0.02479, -0.999679],
+        # cylinder_radius=373,
+        # offset_dist=750,
+        # regional_height=800  # Corrected total working height H
+
+        cylinder_center=[324.69, 1127.41, 400.00],
+        cylinder_axis=[0.0301, 0.0131, -0.9995],
+        cylinder_radius=373,
         offset_dist=700,
         regional_height=800  # Corrected total working height H
     )
