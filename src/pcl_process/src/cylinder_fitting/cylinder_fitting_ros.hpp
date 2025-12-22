@@ -12,9 +12,9 @@
 
 #include "lidar2flexed_arm.hpp"
 #include <pcl_process/ProcessParam.h>
+#include <pcl_process/SprayInfo.h>
 #include <pcl_process/TargetInfo.h>
 #include <pcl_process/TargetPoseList.h>
-
 class CylinderFittingROS {
 public:
     CylinderFittingROS(ros::NodeHandle &nh)
@@ -38,11 +38,15 @@ public:
 
         // 曲臂切片目标位姿发布
         target_pose_pub_ = nh.advertise<pcl_process::TargetPoseList>("/target_pose_list", 1, true);
+        ROS_INFO("CylinderFittingROS: Ready to publish target pose list...");
 
         // 喷涂作业目标位姿发布
         spray_target_pose_pub_ = nh.advertise<pcl_process::TargetInfo>("/target_info", 1, true);
+        ROS_INFO("CylinderFittingROS: Ready to publish spray target info...");
 
-        //
+        // 喷涂作业区域面积发布
+        spray_area_pub_ = nh.advertise<pcl_process::SprayInfo>("/spray_info", 1, true);
+        ROS_INFO("CylinderFittingROS: Ready to publish spray area info...");
     }
 
 public:
@@ -64,6 +68,7 @@ private:
 
     ros::Publisher target_pose_pub_;       //曲臂切片目标位姿发布
     ros::Publisher spray_target_pose_pub_; //喷涂作业目标位姿发布
+    ros::Publisher spray_area_pub_;        //喷涂作业区域面积发布
 
     std::shared_ptr<FlexedArmTF> tf_lidar2_base_; // 雷达到车辆基座坐标变换
 

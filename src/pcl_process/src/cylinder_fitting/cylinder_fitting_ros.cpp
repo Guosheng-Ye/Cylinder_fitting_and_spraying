@@ -203,6 +203,14 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 process_param_msg.height, process_param_msg.lap, process_param_msg.arm_reach, process_param_msg.mode,
                 process_param_msg.k, process_param_msg.w0);
 
+            // 发布面积参数
+            pcl_process::SprayInfo spray_info_msg;
+            spray_info_msg.num  = out.slice_count_;
+            spray_info_msg.area = out.total_slice_area_m2_;
+            spray_area_pub_.publish(spray_info_msg);
+            ROS_INFO("Published SprayInfo: slice_count=%d, total_area=%.4f m^2", spray_info_msg.num,
+                     spray_info_msg.area);
+
         } else {
             ROS_WARN("No valid cylinder model found; skipping target pose publishing.");
         }
