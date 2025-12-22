@@ -37,11 +37,12 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
     const auto &fp = fitting_params_;
     ROS_WARN("Fitting params: min_inliers=%d, max_inliers=%d, min_inlier_ratio=%.4f, max_inlier_ratio=%.4f, "
              "min_height_m=%.2f, min_radius_m=%.2f, max_radius_m=%.2f, min_radial_rel_std=%.4f, max_radial_rel_std=%.4f"
-             "work_distance:%.2f, step_height=%.2f, step_weight=%.2f, r_initial:%.2f, robot_R_arm:%.2f, "
-             "work_mode:%d, width_param:%d",
+             "sparay_distance:%.2f, work_surface:%.2f,height=%.2f, step_weight=%.2f, r_initial:%.2f, robot_R_arm:%.2f, "
+             "work_mode:%d, k:%d",
              fp.min_inliers, fp.max_inliers, fp.min_inlier_ratio, fp.max_inlier_ratio, fp.min_height_m, fp.min_radius_m,
-             fp.max_radius_m, fp.min_radial_rel_std, fp.max_radial_rel_std, fp.slice_distance_, fp.step_height_,
-             fp.step_width_, fp.r_initial_, fp.robot_R_arm_, fp.work_mode, fp.width_param);
+             fp.max_radius_m, fp.min_radial_rel_std, fp.max_radial_rel_std, fp.slice_distance_,
+             fp.virtual_base_to_surface_, fp.height_, fp.step_width_, fp.r_initial_, fp.robot_R_arm_, fp.work_mode_,
+             fp.k_);
 
     fitCylinderPCL(cloud_, normals);
 
@@ -56,7 +57,7 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
     if (hasModel()) {
         ROS_ERROR("[MAX SLICE ANGLE] Cal max slice angle...");
         // 自动作业，动态计算optimized_slice_width_mm
-        if (fp.work_mode == 2) {
+        if (fp.work_mode_ == 2) {
             ROS_INFO("Automatic mode: calculating optimal slice width...");
             PlanningInputs inputs;
             // 获取圆柱参数（雷达坐标系mm）
@@ -71,8 +72,8 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
             inputs.P_cyl = {P_cyl_eigen.x(), P_cyl_eigen.y(), z_center_mm}; //  P_cyl_eigen.z()};
 
             // 计算虚拟原点位置（用于可视化）
-            Eigen::Vector3d geo_center_mm     = cylinder_model_.geo_center.cast<double>() * 1000.0;
-            double          virtual_base_dist = inputs.r_cyl + fp.slice_distance_;
+            Eigen::Vector3d geo_center_mm = cylinder_model_.geo_center.cast<double>() * 1000.0;
+            double virtual_base_dist = inputs.r_cyl + fp.virtual_base_to_surface_; // 虚拟基座到轴线的距离
             Eigen::Vector3d geo_center_xy(geo_center_mm.x(), geo_center_mm.y(), 0.0);
             Eigen::Vector3d virtual_base_pos_mm;
             if (geo_center_xy.norm() > 1e-6) {
@@ -91,20 +92,53 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
             // 机械臂工作区域(入参)
             inputs.robot_R_arm = fp.robot_R_arm_;    // 机械臂最大臂长 R_arm
             inputs.D_offset    = fp.slice_distance_; // 喷涂距离 D
-            inputs.H_region    = fp.step_height_;    // fp.slice_height_; // 总工作高度 H
+
+            // 工作高度范围 H_region（800）
+            inputs.H_region = fp.height_; // fp.slice_height_; // 总工作高度 H
 
             // 喷涂工艺参数
-            inputs.d_spray   = fp.step_width_;  // 喷幅 300
-            inputs.r_initial = fp.r_initial_;   // 初始搭接比例 50%
-            inputs.h_slice   = fp.step_height_; // fp.slice_height_; // 切片高度
+            inputs.d_spray   = fp.step_width_; // 喷幅 300
+            inputs.r_initial = fp.r_initial_;  // 初始搭接比例 50%
+            inputs.h_slice   = fp.height_;     // fp.slice_height_; // 切片高度
 
             // 计算输出
             PlanningOutputs outputs = execute_slice_planning(inputs);
-            ROS_ERROR(
-                "Calculated max coverage angle: %.2f deg, optimal slice angle: %.2f deg, final overlap ratio: %.2f, "
-                "status: %s",
-                outputs.max_coverage_angle, outputs.optimal_slice_angle, outputs.final_overlap_ratio,
-                outputs.status_message.c_str());
+            ROS_ERROR("PlanningOutputs Calculated max coverage angle: %.2f deg, optimal slice angle: %.2f deg, final "
+                      "overlap ratio: %.2f, "
+                      "status: %s",
+                      outputs.max_coverage_angle, outputs.optimal_slice_angle, outputs.final_overlap_ratio,
+                      outputs.status_message.c_str());
+
+            // 更新cylinder_fitter_outputs
+            // 不变量
+            cylinder_fitter_outputs.slice_distance_ = fp.slice_distance_;
+            cylinder_fitter_outputs.height_         = fp.height_;
+            cylinder_fitter_outputs.step_width_     = fp.step_width_;
+            cylinder_fitter_outputs.step_height_    = fp.step_height_;
+            cylinder_fitter_outputs.robot_R_arm_    = fp.robot_R_arm_;
+            cylinder_fitter_outputs.work_mode_      = fp.work_mode_;
+            // 变化量（从优化算法直接获取）
+            // 回传  ：1. k 每个位置的喷涂次数
+            //        2. w0 调整后的有效单次喷幅 (mm)
+            //        3. r 更新后的搭接比例
+            cylinder_fitter_outputs.r_initial_ = outputs.final_overlap_ratio;
+            cylinder_fitter_outputs.w0_        = outputs.w0_adjusted_deg;
+            cylinder_fitter_outputs.k_         = outputs.k_spray_passes;
+
+            // ========== 自动模式回传参数日志打印 ==========
+            ROS_WARN("========== AUTO MODE OUTPUT PARAMETERS ==========");
+            ROS_WARN("[callback] update r_initial r: %.4f (%.2f%%) <- origin: %.4f (%.2f%%)",
+                     outputs.final_overlap_ratio, outputs.final_overlap_ratio * 100.0, fp.r_initial_,
+                     fp.r_initial_ * 100.0);
+            ROS_WARN("[callback] update w0: %.4f deg (%.2f mm) <- origin: %.2f mm", outputs.w0_adjusted_deg,
+                     outputs.w0_adjusted_mm, fp.step_width_ * (1.0 - fp.r_initial_));
+            ROS_WARN("[callback] update k in once move: %d", outputs.k_spray_passes);
+            ROS_WARN("[callback] update N move nums: %d", outputs.n_positions);
+            ROS_WARN("[callback] update slice angle: %.4f deg", outputs.optimal_slice_angle);
+            ROS_WARN("[callback] update total coverage angle: %.4f deg (= %.4f * %d)",
+                     outputs.optimal_slice_angle * outputs.n_positions, outputs.optimal_slice_angle,
+                     outputs.n_positions);
+            ROS_WARN("=================================================");
 
             // ====== 可视化覆盖范围 ======
             visualizeCoverageRange(virtual_base_pos_mm,
@@ -118,18 +152,75 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
             double radius_mm                = cylinder_model_.radius * 1000.0;
             double optimized_slice_width_mm = radius_mm * (outputs.optimal_slice_angle * M_PI / 180.0);
 
-            ROS_INFO("Converting slice angle to width: %.4f deg -> %.2f mm (radius: %.2f mm)",
-                     outputs.optimal_slice_angle, optimized_slice_width_mm, radius_mm);
+            ROS_ERROR("Converting slice angle to width: %.4f deg -> %.2f mm (radius: %.2f mm)",
+                      outputs.optimal_slice_angle, optimized_slice_width_mm, radius_mm);
 
             // 使用优化后的切片宽度进行切片
-            sliceCylinder(180.0, fp.step_height_, optimized_slice_width_mm);
-            
-        } else if (fp.work_mode == 1) {
-            // 手动作业，使用设定的step_width_进行切片
-            ROS_INFO("Manual mode: using preset slice width %.2f mm for slicing.", fp.step_width_);
-            sliceCylinder(180.0, fp.step_height_, fp.step_width_);
+            sliceCylinder(180.0, fp.height_, optimized_slice_width_mm);
+
+        } else if (fp.work_mode_ == 1) {
+            // 手动作业，给定 k 和 r
+            // 切片宽：喷幅 * (1-r) * k => 需要180度整除 => 可能更新 r 和 k
+            ROS_INFO("Manual mode: calculating slice width with given k=%d, r=%.4f", fp.k_, fp.r_initial_);
+
+            // 圆柱半径 (mm)
+            double radius_mm = cylinder_model_.radius * 1000.0;
+
+            // 调用手动模式优化函数
+            int    final_k              = 0;
+            double final_r              = 0.0;
+            double final_w0_mm          = 0.0;
+            double final_slice_width_mm = 0.0;
+
+            int N_slices = calculate_manual_slice_params(fp.step_width_, fp.k_, fp.r_initial_, radius_mm, final_k,
+                                                         final_r, final_w0_mm, final_slice_width_mm);
+
+            // 计算角度用于日志
+            double final_w0_deg          = (final_w0_mm / radius_mm) * (180.0 / M_PI);
+            double final_slice_angle_deg = (final_slice_width_mm / radius_mm) * (180.0 / M_PI);
+            double w0_init_mm            = fp.step_width_ * (1.0 - fp.r_initial_);
+
+            // ========== 更新 cylinder_fitter_outputs ==========
+            // 不变量
+            cylinder_fitter_outputs.slice_distance_ = fp.slice_distance_;
+            cylinder_fitter_outputs.height_         = fp.height_;
+            cylinder_fitter_outputs.step_width_     = fp.step_width_;
+            cylinder_fitter_outputs.step_height_    = fp.step_height_;
+            cylinder_fitter_outputs.robot_R_arm_    = fp.robot_R_arm_;
+            cylinder_fitter_outputs.work_mode_      = fp.work_mode_;
+            // 变化量（w0_ 存储为 deg）
+            cylinder_fitter_outputs.r_initial_ = final_r;
+            cylinder_fitter_outputs.w0_        = final_w0_deg;  // 存储为 deg
+            cylinder_fitter_outputs.k_         = final_k;
+
+            // ========== 手动模式回传参数日志打印 ==========
+            ROS_WARN("========== MANUAL MODE OUTPUT PARAMETERS ==========");
+            ROS_WARN("[callback] update r: %.4f (%.2f%%) <- origin: %.4f (%.2f%%)", final_r, final_r * 100.0,
+                     fp.r_initial_, fp.r_initial_ * 100.0);
+            ROS_WARN("[callback] update effective single spray width w0: %.4f deg (%.2f mm) <- origin: %.2f mm",
+                     final_w0_deg, final_w0_mm, w0_init_mm);
+            ROS_WARN("[callback] update spray move times k: %d <- origin: %d", final_k, fp.k_);
+            ROS_WARN("[callback] final slice width: %.4f deg (%.2f mm) = w0 * k = %.4f * %d", final_slice_angle_deg,
+                     final_slice_width_mm, final_w0_deg, final_k);
+            ROS_WARN("[callback] slice count N: %d (covering 180.00 deg)", N_slices);
+            ROS_WARN("[callback] N * slice_angle = %d * %.4f = %.4f deg (target: 180.00 deg)", N_slices,
+                     final_slice_angle_deg, N_slices * final_slice_angle_deg);
+            ROS_WARN("===================================================");
+
+            // 使用调整后的切片宽度进行切片
+            sliceCylinder(180.0, fp.height_, final_slice_width_mm);
         }
 
+        // w0_ 存储的是 deg，计算对应的 mm 值
+        double w0_mm = cylinder_fitter_outputs.w0_ * (M_PI / 180.0) * (cylinder_model_.radius * 1000.0);
+        ROS_WARN("Final output parameters:\n slice_distance=%.2f mm, height=%.2f mm, step_width=%.2f mm, "
+                 "step_height=%.2f mm, r_initial=%.4f, "
+                 "robot_R_arm=%.2f mm, work_mode=%d, k=%d, w0=%.4f deg (%.2f mm)\n",
+                 cylinder_fitter_outputs.slice_distance_, cylinder_fitter_outputs.height_,
+                 cylinder_fitter_outputs.step_width_, cylinder_fitter_outputs.step_height_,
+                 cylinder_fitter_outputs.r_initial_, cylinder_fitter_outputs.robot_R_arm_,
+                 cylinder_fitter_outputs.work_mode_, cylinder_fitter_outputs.k_, 
+                 cylinder_fitter_outputs.w0_, w0_mm);
         // 打印结果
         printResults();
         // 保存可视化数据（包括切片信息）
@@ -159,8 +250,9 @@ Eigen::Vector3d CylinderFitter::calculateVirtualBaseP_cyl(const Eigen::Vector3f 
     // 圆柱几何中心（雷达坐标系，单位：m -> mm）
     Eigen::Vector3d geo_center_mm = geo_center_m.cast<double>() * 1000.0;
 
-    // 虚拟原点到轴线的距离
-    double virtual_base_dist = cylinder_radius_mm + work_distance_mm;
+    // 虚拟原点到圆柱表面的距离（从参数获取）
+    // 虚拟原点到轴线的距离 = R_cyl + virtual_base_to_surface
+    double virtual_base_dist = cylinder_radius_mm + fitting_params_.virtual_base_to_surface_;
 
     // 计算虚拟机械臂原点：在XY平面上，从圆柱中心向外延伸
     // 选择几何中心投影到XY平面的反方向（朝向激光雷达的方向）
@@ -180,8 +272,8 @@ Eigen::Vector3d CylinderFitter::calculateVirtualBaseP_cyl(const Eigen::Vector3f 
 
     ROS_INFO("Virtual robot base position (lidar frame): [%.2f, %.2f, %.2f] mm", virtual_base_pos.x(),
              virtual_base_pos.y(), virtual_base_pos.z());
-    ROS_INFO("Distance from virtual base to cylinder axis: %.2f mm (R=%.2f + D_work=%.2f)", virtual_base_dist,
-             cylinder_radius_mm, work_distance_mm);
+    ROS_INFO("Distance from virtual base to cylinder axis: %.2f mm (R=%.2f + surface_dist=%.2f)", virtual_base_dist,
+             cylinder_radius_mm, fitting_params_.virtual_base_to_surface_);
 
     // 计算圆柱轴线上一点相对于虚拟原点的位置
     // P_cyl = geo_center - virtual_base_pos （以虚拟原点为原点）
@@ -838,12 +930,16 @@ double CylinderFitter::calculate_optimal_slice_angle(double max_coverage_angle, 
 
     // 1. 计算工作半径 R_task (mm)
     double R_task = cylinder_radius + offset_dist;
+    // 1. 使用圆柱表面半径 R_cyl (mm) 来计算角度
+    // 注意：角度是相对于圆柱表面的，不是相对于工作点的
+    double R_cyl = cylinder_radius;
 
     // 2. 初始有效喷幅 w0_init (线性距离 mm)
     double w0_init_linear = spray_width * (1.0 - initial_overlap_ratio);
 
-    // 3. 将初始有效喷幅转换为角度 (度)
-    double w0_init_deg = (w0_init_linear / R_task) * (180.0 / M_PI);
+    // 3. 将初始有效喷幅转换为圆柱表面角度 (度)
+    // 弧长 = 半径 × 角度(弧度)  =>  角度(度) = 弧长 / 半径 × (180/π)
+    double w0_init_deg = (w0_init_linear / R_cyl) * (180.0 / M_PI);
 
     if (w0_init_deg <= 0.0) {
         ROS_ERROR("Initial w0 must be positive (w0_init_deg = %.4f)", w0_init_deg);
@@ -857,8 +953,8 @@ double CylinderFitter::calculate_optimal_slice_angle(double max_coverage_angle, 
     ROS_INFO("[Before] Max Coverage Angle per Position: %.4f deg", max_coverage_angle);
     ROS_INFO("[Before] Spray Width (d): %.2f mm", spray_width);
     ROS_INFO("[Before] Overlap Ratio (r): %.4f (%.1f%%)", initial_overlap_ratio, initial_overlap_ratio * 100.0);
-    ROS_INFO("[Before] w0 = d * (1 - r) = %.2f mm (%.4f deg)", w0_init_linear, w0_init_deg);
-    ROS_INFO("[Before] Task Radius (R_task): %.2f mm", R_task);
+    ROS_INFO("[Before] w0 = d * (1 - r) = %.2f mm (%.4f deg on cylinder surface)", w0_init_linear, w0_init_deg);
+    ROS_INFO("[Before] Cylinder Radius (R_cyl): %.2f mm", R_cyl);
 
     // ==================== 新优化逻辑 ====================
 
@@ -894,10 +990,11 @@ double CylinderFitter::calculate_optimal_slice_angle(double max_coverage_angle, 
              w0_init_deg, k_spray_passes);
 
     // 步骤4: 调整 w0 使得 k × w0_adjusted = coverage_per_position（精确覆盖）
-    double w0_adjusted_deg    = coverage_per_position / static_cast<double>(k_spray_passes);
-    double w0_adjusted_linear = w0_adjusted_deg * (M_PI / 180.0) * R_task;
+    double w0_adjusted_deg = coverage_per_position / static_cast<double>(k_spray_passes);
+    // 将角度转换回圆柱表面的线性距离
+    double w0_adjusted_linear = w0_adjusted_deg * (M_PI / 180.0) * R_cyl;
 
-    ROS_INFO("[Step4] Adjusted w0: %.4f deg (%.2f mm)", w0_adjusted_deg, w0_adjusted_linear);
+    ROS_INFO("[Step4] Adjusted w0: %.4f deg (%.2f mm on cylinder surface)", w0_adjusted_deg, w0_adjusted_linear);
 
     // 步骤5: 反推新的搭接比例
     // w0 = d × (1 - r) => r = 1 - w0 / d
@@ -921,7 +1018,7 @@ double CylinderFitter::calculate_optimal_slice_angle(double max_coverage_angle, 
         while (r_adjusted < initial_overlap_ratio - 1e-6 && k_spray_passes < 100) {
             k_spray_passes++;
             w0_adjusted_deg    = coverage_per_position / static_cast<double>(k_spray_passes);
-            w0_adjusted_linear = w0_adjusted_deg * (M_PI / 180.0) * R_task;
+            w0_adjusted_linear = w0_adjusted_deg * (M_PI / 180.0) * R_cyl;
             r_adjusted         = 1.0 - (w0_adjusted_linear / spray_width);
         }
         ROS_INFO("After adjustment: k = %d, r = %.4f", k_spray_passes, r_adjusted);
@@ -952,6 +1049,12 @@ double CylinderFitter::calculate_optimal_slice_angle(double max_coverage_angle, 
 
     // ==================== 输出结果 ====================
     final_overlap_ratio = r_adjusted;
+    // 通过引用参数返回 k 和 w0（将在调用处处理）
+    // 这里先存储到静态变量供后续使用
+    last_k_spray_passes_  = k_spray_passes;
+    last_w0_adjusted_mm_  = w0_adjusted_linear;
+    last_w0_adjusted_deg_ = w0_adjusted_deg;
+    last_n_positions_     = N_positions;
 
     double total_coverage     = coverage_per_position * N_positions;
     int    total_spray_passes = k_spray_passes * N_positions;
@@ -991,6 +1094,114 @@ double CylinderFitter::calculate_optimal_slice_angle(double max_coverage_angle, 
     return coverage_per_position;
 }
 
+/// @brief 手动模式切片优化 (给定k和r，计算整除180度的切片宽度)
+/// 计算初始有效喷幅和切片宽度
+/// 将切片宽度转换为角度
+/// 计算整除180度所需的切片数量
+/// 调整切片角度以精确覆盖180度
+/// 反推调整后的 w0 和 r
+/// 约束检查（r 不能小于初始值，也不能 >= 1.0）
+/// 返回切片数量 N
+/// @param spray_width 喷幅宽度 (mm)
+/// @param initial_k 初始喷涂移动次数
+/// @param initial_r 初始搭接比例
+/// @param cylinder_radius_mm 圆柱半径 (mm)
+/// @param final_k 输出：调整后的喷涂移动次数
+/// @param final_r 输出：调整后的搭接比例
+/// @param final_w0_mm 输出：调整后的有效单次喷幅 (mm)
+/// @param final_slice_width_mm 输出：最终切片宽度 (mm)
+/// @return 切片数量 N
+int CylinderFitter::calculate_manual_slice_params(double spray_width, int initial_k, double initial_r,
+                                                  double cylinder_radius_mm, int &final_k, double &final_r,
+                                                  double &final_w0_mm, double &final_slice_width_mm) {
+    const double TARGET_COVERAGE_ANGLE = 180.0; // 目标覆盖角度：圆柱的一半
+
+    // 1. 计算初始有效喷幅 w0_init (mm)
+    double w0_init_mm = spray_width * (1.0 - initial_r);
+
+    // 2. 计算初始切片宽度 (mm) = w0 * k
+    double slice_width_init_mm = w0_init_mm * initial_k;
+
+    // 3. 将切片宽度转换为角度 (deg)
+    // 弧长 = 半径 × 角度(弧度) => 角度(度) = 弧长 / 半径 × (180/π)
+    double slice_angle_init_deg = (slice_width_init_mm / cylinder_radius_mm) * (180.0 / M_PI);
+
+    ROS_WARN("----------- Manual Mode Before Optimization -----------");
+    ROS_INFO("[Before] Spray Width (d): %.2f mm", spray_width);
+    ROS_INFO("[Before] Overlap Ratio (r): %.4f (%.1f%%)", initial_r, initial_r * 100.0);
+    ROS_INFO("[Before] Spray Passes per Position (k): %d", initial_k);
+    ROS_INFO("[Before] w0 = d * (1 - r) = %.2f mm", w0_init_mm);
+    ROS_INFO("[Before] Slice Width = w0 * k = %.2f mm (%.4f deg)", slice_width_init_mm, slice_angle_init_deg);
+    ROS_INFO("[Before] Cylinder Radius: %.2f mm", cylinder_radius_mm);
+
+    // 4. 计算需要多少个切片来覆盖180度
+    // N = round(180 / slice_angle_init_deg)
+    int N_slices = static_cast<int>(std::round(TARGET_COVERAGE_ANGLE / slice_angle_init_deg));
+    if (N_slices < 1) N_slices = 1;
+
+    ROS_INFO("[Step1] Number of slices: N = round(%.2f / %.4f) = %d", TARGET_COVERAGE_ANGLE, slice_angle_init_deg,
+             N_slices);
+
+    // 5. 调整切片角度使得 N × slice_angle = 180（精确覆盖）
+    double slice_angle_adjusted_deg = TARGET_COVERAGE_ANGLE / static_cast<double>(N_slices);
+
+    // 6. 将调整后的角度转换回切片宽度 (mm)
+    double slice_width_adjusted_mm = slice_angle_adjusted_deg * (M_PI / 180.0) * cylinder_radius_mm;
+
+    ROS_INFO("[Step2] Adjusted slice angle: %.4f deg (%.2f mm)", slice_angle_adjusted_deg, slice_width_adjusted_mm);
+
+    // 7. 反推调整后的 w0 和 r
+    // slice_width = w0 * k => w0 = slice_width / k
+    int    k_adjusted     = initial_k; // 保持 k 不变
+    double w0_adjusted_mm = slice_width_adjusted_mm / static_cast<double>(k_adjusted);
+
+    // w0 = d * (1 - r) => r = 1 - w0 / d
+    double r_adjusted = 1.0 - (w0_adjusted_mm / spray_width);
+
+    ROS_INFO("[Step3] w0_adjusted = slice_width / k = %.2f / %d = %.2f mm", slice_width_adjusted_mm, k_adjusted,
+             w0_adjusted_mm);
+    ROS_INFO("[Step4] r_adjusted = 1 - w0 / d = 1 - %.2f / %.2f = %.4f (%.1f%%)", w0_adjusted_mm, spray_width,
+             r_adjusted, r_adjusted * 100.0);
+
+    // 8. 约束检查：如果 r < 原始值，需要增加 k
+    if (r_adjusted < initial_r - 1e-6) {
+        ROS_WARN("Constraint: r_adjusted (%.4f) < r_initial (%.4f), need to increase k", r_adjusted, initial_r);
+
+        // 增加 k 直到 r >= r_initial
+        while (r_adjusted < initial_r - 1e-6 && k_adjusted < 100) {
+            k_adjusted++;
+            w0_adjusted_mm = slice_width_adjusted_mm / static_cast<double>(k_adjusted);
+            r_adjusted     = 1.0 - (w0_adjusted_mm / spray_width);
+        }
+        ROS_INFO("After adjustment: k = %d, w0 = %.2f mm, r = %.4f", k_adjusted, w0_adjusted_mm, r_adjusted);
+    }
+
+    // 9. 约束检查：r 不能 >= 1.0
+    if (r_adjusted >= 1.0 - 1e-6) {
+        ROS_WARN("Fallback: r_adjusted >= 1.0, using initial values");
+        k_adjusted              = initial_k;
+        w0_adjusted_mm          = w0_init_mm;
+        r_adjusted              = initial_r;
+        slice_width_adjusted_mm = slice_width_init_mm;
+    }
+
+    // 设置输出参数
+    final_k              = k_adjusted;
+    final_r              = r_adjusted;
+    final_w0_mm          = w0_adjusted_mm;
+    final_slice_width_mm = slice_width_adjusted_mm;
+
+    ROS_WARN("----------- Manual Mode After Optimization -----------");
+    ROS_INFO("[Result] Adjusted k: %d", final_k);
+    ROS_INFO("[Result] Adjusted r: %.4f (%.1f%%)", final_r, final_r * 100.0);
+    ROS_INFO("[Result] Adjusted w0: %.2f mm", final_w0_mm);
+    ROS_INFO("[Result] Final Slice Width: %.2f mm", final_slice_width_mm);
+    ROS_INFO("[Result] Number of Slices: %d", N_slices);
+    ROS_INFO("=====================================================");
+
+    return N_slices;
+}
+
 // 核心执行函数 (将您的测试代码封装)
 
 PlanningOutputs CylinderFitter::execute_slice_planning(const PlanningInputs &inputs) {
@@ -1000,6 +1211,10 @@ PlanningOutputs CylinderFitter::execute_slice_planning(const PlanningInputs &inp
     outputs.max_coverage_angle  = 0.0;
     outputs.optimal_slice_angle = 0.0;
     outputs.final_overlap_ratio = inputs.r_initial;
+    outputs.k_spray_passes      = 0;
+    outputs.w0_adjusted_mm      = 0.0;
+    outputs.w0_adjusted_deg     = 0.0;
+    outputs.n_positions         = 0;
     outputs.status_message      = "";
 
     try {
@@ -1022,6 +1237,12 @@ PlanningOutputs CylinderFitter::execute_slice_planning(const PlanningInputs &inp
         outputs.optimal_slice_angle =
             calculate_optimal_slice_angle(outputs.max_coverage_angle, inputs.d_spray, inputs.r_initial, inputs.r_cyl,
                                           inputs.D_offset, outputs.final_overlap_ratio);
+
+        // 从成员变量获取优化结果
+        outputs.k_spray_passes  = last_k_spray_passes_;
+        outputs.w0_adjusted_mm  = last_w0_adjusted_mm_;
+        outputs.w0_adjusted_deg = last_w0_adjusted_deg_;
+        outputs.n_positions     = last_n_positions_;
 
         outputs.status_message += "; Optimization done";
 
@@ -1320,6 +1541,27 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                                  0.8, ring_id); // 洋红色
                 slice_line_ids_.push_back(ring_id);
             }
+        }
+    }
+
+    // 绘制工作点轨迹圆（绿色，在底部绘制一个圆）
+    {
+        std::lock_guard<std::mutex> lock(viewer_mutex_);
+        int                         ring_samples   = 96;
+        double                      work_radius_mm = radius_mm + fitting_params_.slice_distance_;
+        double                      h_mm           = height_mm / 2.0; // 在中间高度绘制
+        for (int k = 0; k < ring_samples; ++k) {
+            double          th0 = 2.0 * M_PI * k / ring_samples;
+            double          th1 = 2.0 * M_PI * (k + 1) / ring_samples;
+            Eigen::Vector3f p0_mm =
+                bottom_center_mm + h_mm * z + work_radius_mm * (std::cos(th0) * x + std::sin(th0) * y);
+            Eigen::Vector3f p1_mm =
+                bottom_center_mm + h_mm * z + work_radius_mm * (std::cos(th1) * x + std::sin(th1) * y);
+            std::string ring_id = "work_point_ring_" + std::to_string(k);
+            viewer_->addLine(pcl::PointXYZ(p0_mm.x() / 1000.0f, p0_mm.y() / 1000.0f, p0_mm.z() / 1000.0f),
+                             pcl::PointXYZ(p1_mm.x() / 1000.0f, p1_mm.y() / 1000.0f, p1_mm.z() / 1000.0f), 0.0, 1.0,
+                             0.0, ring_id); // 绿色 (工作点圆)
+            slice_line_ids_.push_back(ring_id);
         }
     }
 
@@ -1702,6 +1944,40 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
                      pcl::PointXYZ(right_work_pt.x(), right_work_pt.y(), right_work_pt.z()), 0.0, 1.0, 1.0,
                      "reach_ray_right");
 
+    // 9. ====== 虚拟基座轨迹圆（紫色，以圆柱轴线在Z=0的投影为圆心） ======
+    // 虚拟基座在Z=0平面，所以紫色圆也应该在Z=0平面
+    // 圆心是圆柱几何中心在XY平面的投影
+    double          virtual_base_radius_m = radius_m + fitting_params_.virtual_base_to_surface_ * scale;
+    Eigen::Vector3f cyl_center_xy(geo_center_m.x(), geo_center_m.y(), 0.0f); // 圆柱中心的XY投影，Z=0
+    pcl::PointCloud<pcl::PointXYZ>::Ptr virtual_base_ring(new pcl::PointCloud<pcl::PointXYZ>);
+    for (int j = 0; j <= 72; ++j) {
+        double theta = 2.0 * M_PI * j / 72;
+        float  x     = cyl_center_xy.x() + virtual_base_radius_m * std::cos(theta);
+        float  y     = cyl_center_xy.y() + virtual_base_radius_m * std::sin(theta);
+        float  z     = 0.0f; // Z=0 平面
+        virtual_base_ring->push_back(pcl::PointXYZ(x, y, z));
+    }
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> vb_ring_color(virtual_base_ring, 200, 0, 255);
+    viewer_->addPointCloud<pcl::PointXYZ>(virtual_base_ring, vb_ring_color, "virtual_base_trajectory_ring");
+    viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
+                                              "virtual_base_trajectory_ring");
+
+    // 10. ====== 工作点轨迹圆（绿色，以圆柱轴线在Z=0的投影为圆心） ======
+    // 工作点半径 = 圆柱半径 + 工作距离(slice_distance_)
+    double                              work_point_radius_m = radius_m + fitting_params_.slice_distance_ * scale;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr work_point_ring(new pcl::PointCloud<pcl::PointXYZ>);
+    for (int j = 0; j <= 72; ++j) {
+        double theta = 2.0 * M_PI * j / 72;
+        float  x     = cyl_center_xy.x() + work_point_radius_m * std::cos(theta);
+        float  y     = cyl_center_xy.y() + work_point_radius_m * std::sin(theta);
+        float  z     = 0.0f; // Z=0 平面
+        work_point_ring->push_back(pcl::PointXYZ(x, y, z));
+    }
+    pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> wp_ring_color(work_point_ring, 0, 255, 0);
+    viewer_->addPointCloud<pcl::PointXYZ>(work_point_ring, wp_ring_color, "work_point_trajectory_ring");
+    viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
+                                              "work_point_trajectory_ring");
+
     // 输出调试信息
     ROS_INFO("======== Coverage Visualization ========");
     ROS_INFO("Virtual Base (m): [%.3f, %.3f, %.3f]", virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z());
@@ -1709,6 +1985,10 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     ROS_INFO("Effective Reach at Z=%.2f m: %.3f m", delta_z_max + virtual_base_m.z(), r_eff_m);
     ROS_INFO("Coverage Angle: %.2f deg (half: %.2f deg)", coverage_angle_deg, coverage_angle_deg / 2.0);
     ROS_INFO("Work Height Range: [%.2f, %.2f] m", z_work_min, z_work_max);
+    ROS_INFO("Virtual Base Radius: %.3f m (R=%.3f + %.3f)", virtual_base_radius_m, radius_m,
+             fitting_params_.virtual_base_to_surface_ * scale);
+    ROS_INFO("Work Point Radius: %.3f m (R=%.3f + %.3f)", work_point_radius_m, radius_m,
+             fitting_params_.slice_distance_ * scale);
     ROS_INFO("=========================================");
 }
 
@@ -1763,6 +2043,48 @@ void CylinderFitter::printResults() {
     ROS_INFO("Radius: %.2f mm", cylinder_model_.radius * 1000.0);
     ROS_INFO("Angle: %.2f deg", cylinder_model_.valid ? angle_deg : 0.0);
     ROS_INFO("Height: %.2f mm", cylinder_model_.height * 1000.0);
+
+    // // ========== 距离计算（与其他函数使用一致的变量名和计算方式）==========
+    // // 圆柱半径 (mm) - 统一使用 cylinder_radius_mm
+    // double cylinder_radius_mm = cylinder_model_.radius * 1000.0;
+
+    // // 圆柱几何中心 (mm) - 统一使用 geo_center_mm
+    // Eigen::Vector3d geo_center_mm = cylinder_model_.geo_center.cast<double>() * 1000.0;
+
+    // // 虚拟基座到轴线的距离 = R_cyl + virtual_base_to_surface_ (与 calculateVirtualBaseP_cyl 一致)
+    // double virtual_base_dist = cylinder_radius_mm + fitting_params_.virtual_base_to_surface_;
+
+    // // 计算虚拟机械臂原点位置 (与 calculateVirtualBaseP_cyl 和 run_with_rslidar 一致)
+    // Eigen::Vector3d geo_center_xy(geo_center_mm.x(), geo_center_mm.y(), 0.0);
+    // Eigen::Vector3d virtual_base_pos;
+    // if (geo_center_xy.norm() > 1e-6) {
+    //     Eigen::Vector3d dir_xy = -geo_center_xy.normalized(); // 指向原点方向
+    //     virtual_base_pos       = geo_center_mm + dir_xy * virtual_base_dist;
+    //     virtual_base_pos.z()   = 0.0; // 虚拟原点在z=0平面上
+    // } else {
+    //     virtual_base_pos = Eigen::Vector3d(virtual_base_dist, 0.0, 0.0);
+    // }
+
+    // // 1. 从原点到圆柱底面中心的距离 (mm)
+    // double dist_origin_to_bottom_center = cylinder_model_.bottom_center.norm() * 1000.0;
+
+    // // 2. 从原点到圆柱底面表面的距离 (mm) - 底面中心距离减去半径
+    // double dist_origin_to_bottom_surface = dist_origin_to_bottom_center - cylinder_radius_mm;
+
+    // // 3. 从原点到虚拟机械臂中心的距离 (mm)
+    // double dist_origin_to_virtual_arm = virtual_base_pos.norm();
+
+    // // 4. 从圆柱中心到表面的距离 (mm) - 即半径
+    // double dist_center_to_surface = cylinder_radius_mm;
+
+    // // 5. 从圆柱中心到虚拟机械臂中心的距离 (mm)
+    // // 即 virtual_base_dist (因为虚拟原点在圆柱中心XY方向延伸 virtual_base_dist 的位置)
+    // double dist_center_to_virtual_arm = virtual_base_dist;
+
+    // ROS_INFO("Distances from origin: BottomCenter=%.2f mm, BottomSurface=%.2f mm, VirtualArmCenter=%.2f mm",
+    //          dist_origin_to_bottom_center, dist_origin_to_bottom_surface, dist_origin_to_virtual_arm);
+    // ROS_INFO("Distances from cylinder center: ToSurface=%.2f mm (radius), ToVirtualArmCenter=%.2f mm (R+%.2f)",
+    //          dist_center_to_surface, dist_center_to_virtual_arm, fitting_params_.virtual_base_to_surface_);
 
     // const auto &all = slices_data_;
     // for (const auto &s : all) {

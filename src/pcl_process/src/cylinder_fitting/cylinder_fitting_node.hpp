@@ -46,8 +46,12 @@ struct PlanningInputs {
 // 定义输出结果结构体
 struct PlanningOutputs {
     double      max_coverage_angle;  // 机械臂最大覆盖角度 (theta_max)
-    double      optimal_slice_angle; // 最佳切片角度宽度 w
+    double      optimal_slice_angle; // 最佳切片角度宽度 w -> 90 deg
     double      final_overlap_ratio; // 调整后的搭接比例 r_final
+    int         k_spray_passes;      // 每个位置的喷涂次数 k
+    double      w0_adjusted_mm;      // 调整后的有效单次喷幅 (mm)
+    double      w0_adjusted_deg;     // 调整后的有效单次喷幅 (deg)
+    int         n_positions;         // 机械臂基座移动次数 N
     std::string status_message;      // 状态信息
 };
 
@@ -55,6 +59,22 @@ class CylinderFitter {
 public:
     CylinderFitter(const std::string &pcd_path);
     ~CylinderFitter();
+
+    /// @brief 输出参数结构体（用于回传给上位机）
+    struct CylinderFitterParamsOutpus {
+        // 切片参数
+        double slice_distance_{750.00}; // 喷头距离圆柱表面偏移 (毫米)
+        double height_{600.00};         // 工作区域单次喷幅高(mm)
+        double step_width_{300.00};     // 工作区域单次喷幅宽(mm)
+        double step_height_{200.00};    // 工作区域单次喷幅高(mm)
+
+        // 工艺参数
+        double r_initial_{0.50};     // 初始搭接比例0.5
+        double robot_R_arm_{1500.0}; // 机械臂最大臂长1500mm
+        int    work_mode_{2};        // 工作模式 1 手动,2 自动 动态计算回传
+        int    k_{0};                // 手动模式下的倍数k
+        double w0_{0.0};             // 有效喷幅宽度 (deg)
+    };
 
 public:
     /// @brief 圆柱模型结构体
@@ -71,18 +91,25 @@ public:
         double max_radial_rel_std{0.15}; // 最大径向相对标准差
 
         // 切片参数
-        double slice_distance_{1150}; // 喷头距离圆柱表面偏移 (毫米)
-        double step_height_{600.00};  // 工作区域单次喷幅高(mm)
-        double step_width_{300.00};   // 工作区域单次喷幅宽(mm)
+        double slice_distance_{750.00}; // 喷头距离圆柱表面偏移 (毫米)
+        double height_{600.00};         // 工作区域总喷幅高(mm)
+        double step_width_{300.00};     // 工作区域单次喷幅宽(mm)
+        double step_height_{200.00};    // 工作区域单次喷幅高(mm)
 
         // 工艺参数
-        double r_initial_{0.50};     // 初始搭接比例0.5
-        double robot_R_arm_{1500.0}; // 机械臂最大臂长1500mm
-        int    work_mode{2};         // 工作模式 1 手动,2 自动 动态计算回传
-        int    width_param{0};       // 宽度参数
+        double r_initial_{0.50};               // 初始搭接比例0.5
+        double robot_R_arm_{1500.0};           // 机械臂最大臂长1500mm
+        double virtual_base_to_surface_{1100}; // 虚拟原点到圆柱表面的距离(mm)
+        int    work_mode_{2};                  // 工作模式 1 手动,2 自动 动态计算回传
+        int    k_{0};                          // 手动模式下的倍数k
+        float  w0_{0};                         // 有效喷副宽度
     };
+
     void                        setFittingParams(const CylinderFitterParams &p) { fitting_params_ = p; }
     const CylinderFitterParams &fittingParams() const { return fitting_params_; }
+
+    // 获取输出参数结构体（用于发布）
+    const CylinderFitterParamsOutpus &getOutputParams() const { return cylinder_fitter_outputs; }
 
     struct SliceData {
         int             id;               // 切片id
@@ -178,6 +205,19 @@ private:
     double calculate_optimal_slice_angle(double max_coverage_angle, double spray_width, double initial_overlap_ratio,
                                          double cylinder_radius, double offset_dist, double &final_overlap_ratio);
 
+    /// @brief 手动模式切片优化 (给定k和r，计算整除180度的切片宽度)
+    /// @param spray_width 喷幅宽度 (mm)
+    /// @param initial_k 初始喷涂移动次数
+    /// @param initial_r 初始搭接比例
+    /// @param cylinder_radius_mm 圆柱半径 (mm)
+    /// @param final_k 输出：调整后的喷涂移动次数
+    /// @param final_r 输出：调整后的搭接比例
+    /// @param final_w0_mm 输出：调整后的有效单次喷幅 (mm)
+    /// @param final_slice_width_mm 输出：最终切片宽度 (mm)
+    /// @return 切片数量 N
+    int calculate_manual_slice_params(double spray_width, int initial_k, double initial_r, double cylinder_radius_mm,
+                                      int &final_k, double &final_r, double &final_w0_mm, double &final_slice_width_mm);
+
     /// @brief 法线修复
     /// @param cloud 点云
     /// @param normals 法线
@@ -239,6 +279,12 @@ private:
 
     CylinderFitterParams fitting_params_{};
 
+    // 优化算法的临时结果存储（用于在 calculate_optimal_slice_angle 和 execute_slice_planning 之间传递）
+    int    last_k_spray_passes_{0};    // 上次计算的每位置喷涂次数
+    double last_w0_adjusted_mm_{0.0};  // 上次计算的有效喷幅 (mm)
+    double last_w0_adjusted_deg_{0.0}; // 上次计算的有效喷幅 (deg)
+    int    last_n_positions_{0};       // 上次计算的基座移动次数
+
 private:
     std::string                            pcd_path_;                                    // PCD文件路径
     pcl::visualization::PCLVisualizer::Ptr viewer_;                                      // 可视化器
@@ -265,6 +311,8 @@ private:
         double                              height{0.0};                                   // 高度
         pcl::PointCloud<pcl::PointXYZ>::Ptr inliers{new pcl::PointCloud<pcl::PointXYZ>()}; // 内点
     } cylinder_model_;
+
+    CylinderFitterParamsOutpus cylinder_fitter_outputs;
 };
 
 #endif
