@@ -28,20 +28,26 @@ public:
         lidar_data_sub_ = nh.subscribe("/rslidar_filtered", 1, &CylinderFittingROS::cloudCallback, this);
         ROS_INFO("CylinderFittingROS: Waiting for filtered point clouds...");
 
-        // 工艺参数订阅
-        process_param_sub_ = nh.subscribe("/process_param", 1, &CylinderFittingROS::processParamsCallback, this);
+        // 工艺参数订阅 process_param_bridge
+        process_param_sub_ = nh.subscribe("/process_param_bridge", 1, &CylinderFittingROS::processParamsCallback, this);
         ROS_INFO("CylinderFittingROS: Waiting for process parameters...");
+
+        // 工艺参数发布 process_param
+        process_param_pub_ = nh.advertise<pcl_process::ProcessParam>("/process_param", 1, true);
+        ROS_INFO("CylinderFittingROS: Ready to publish process parameters...");
 
         // 曲臂切片目标位姿发布
         target_pose_pub_ = nh.advertise<pcl_process::TargetPoseList>("/target_pose_list", 1, true);
 
         // 喷涂作业目标位姿发布
         spray_target_pose_pub_ = nh.advertise<pcl_process::TargetInfo>("/target_info", 1, true);
+
+        //
     }
 
 public:
-    void setOption(const float distance, const float step_width, const float step_height, const float lap,
-                   const int arm_reach, const int mode, const int width_param);
+    void setOption(const float distance, const float step_width, const float step_height, const float height,
+                   const float lap, const int arm_reach, const int mode, const int k);
 
 private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
@@ -52,6 +58,7 @@ private:
     ros::Subscriber                 lidar_data_sub_;    // 雷达数据订阅
     ros::Subscriber                 main_ctl_sub_;      //主控命令订阅
     ros::Subscriber                 process_param_sub_; //工艺参数订阅
+    ros::Publisher                  process_param_pub_; //工艺参数发布
     std::shared_ptr<CylinderFitter> fitter_;            // 圆柱拟合
     std::atomic<bool>               processing_{false};
 
@@ -61,11 +68,12 @@ private:
     std::shared_ptr<FlexedArmTF> tf_lidar2_base_; // 雷达到车辆基座坐标变换
 
     // 记录历史值
-    double last_distance_    = -1.0;
-    double last_step_width_  = -1.0;
-    double last_step_height_ = -1.0;
-    double last_lap_         = -1.0;
-    int    last_arm_reach_   = -1;
-    int    last_mode_        = -1;
-    int    last_width_param_ = -1;
+    double last_distance_   = -1.0;
+    double last_step_width_ = -1.0;
+    double last_height_     = -1.0;
+    double last_lap_        = -1.0;
+    int    last_arm_reach_  = -1;
+    int    last_mode_       = -1;
+    int    last_k_          = -1;
+    int    last_w0_         = -1;
 };
