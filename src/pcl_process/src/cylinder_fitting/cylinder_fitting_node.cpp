@@ -171,7 +171,15 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
                 double final_w0_deg          = (final_w0_mm / radius_mm) * (180.0 / M_PI);
                 double final_slice_angle_deg = (final_slice_width_mm / radius_mm) * (180.0 / M_PI);
 
-                // 更新 outputs 和 cylinder_fitter_outputs 以反映回退计算结果
+                // 更新 outputs 以反映回退计算结果（用于后续日志输出）
+                outputs.optimal_slice_angle = final_slice_angle_deg;
+                outputs.final_overlap_ratio = final_r;
+                outputs.k_spray_passes      = final_k;
+                outputs.w0_adjusted_mm      = final_w0_mm;
+                outputs.w0_adjusted_deg     = final_w0_deg;
+                outputs.n_positions         = N_slices;
+
+                // 更新 cylinder_fitter_outputs 以反映回退计算结果
                 optimized_slice_width_mm               = final_slice_width_mm;
                 cylinder_fitter_outputs.r_initial_     = final_r;
                 cylinder_fitter_outputs.w0_            = final_w0_deg;  // 存储为 deg
