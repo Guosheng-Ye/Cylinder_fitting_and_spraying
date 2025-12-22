@@ -27,6 +27,7 @@ add_message_files(
     TargetInfo.msg
     TargetPoseList.msg
     ProcessParam.msg
+    SprayInfo.msg
     # CylinderSlice.msg
     # CylinderSliceArray.msg
 )
