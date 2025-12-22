@@ -74,6 +74,11 @@ public:
         int    work_mode_{2};        // 工作模式 1 手动,2 自动 动态计算回传
         int    k_{0};                // 手动模式下的倍数k
         double w0_{0.0};             // 有效喷幅宽度 (deg)
+
+        // 切片统计信息
+        int    slice_count_{0};             // 切片总数
+        double single_slice_area_m2_{0.0}; // 单个切片面积 (m^2)
+        double total_slice_area_m2_{0.0};  // 切片总面积 (m^2) = 单个切片面积 * 切片数
     };
 
 public:

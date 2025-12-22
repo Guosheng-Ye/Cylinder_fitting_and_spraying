@@ -152,6 +152,42 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
             double radius_mm                = cylinder_model_.radius * 1000.0;
             double optimized_slice_width_mm = radius_mm * (outputs.optimal_slice_angle * M_PI / 180.0);
 
+            // ====== 回退策略：优化失败时使用固定切片宽度计算 ======
+            if (outputs.optimal_slice_angle <= 0.0 || optimized_slice_width_mm <= 0.0) {
+                ROS_WARN("========== AUTO MODE FALLBACK: Optimization failed, using fixed slice calculation ==========");
+                ROS_WARN("[fallback] Optimization failed reason: %s", outputs.status_message.c_str());
+                
+                // 使用初始 k=1 调用手动模式计算函数
+                int    fallback_k              = 1;  // 自动模式回退时初始k设为1
+                int    final_k                 = 0;
+                double final_r                 = 0.0;
+                double final_w0_mm             = 0.0;
+                double final_slice_width_mm    = 0.0;
+
+                int N_slices = calculate_manual_slice_params(fp.step_width_, fallback_k, fp.r_initial_, radius_mm,
+                                                             final_k, final_r, final_w0_mm, final_slice_width_mm);
+
+                // 计算角度用于日志
+                double final_w0_deg          = (final_w0_mm / radius_mm) * (180.0 / M_PI);
+                double final_slice_angle_deg = (final_slice_width_mm / radius_mm) * (180.0 / M_PI);
+
+                // 更新 outputs 和 cylinder_fitter_outputs 以反映回退计算结果
+                optimized_slice_width_mm               = final_slice_width_mm;
+                cylinder_fitter_outputs.r_initial_     = final_r;
+                cylinder_fitter_outputs.w0_            = final_w0_deg;  // 存储为 deg
+                cylinder_fitter_outputs.k_             = final_k;
+
+                ROS_WARN("========== AUTO MODE FALLBACK OUTPUT PARAMETERS ==========");
+                ROS_WARN("[fallback] update r: %.4f (%.2f%%) <- origin: %.4f (%.2f%%)", final_r, final_r * 100.0,
+                         fp.r_initial_, fp.r_initial_ * 100.0);
+                ROS_WARN("[fallback] update w0: %.4f deg (%.2f mm) <- origin: %.2f mm",
+                         final_w0_deg, final_w0_mm, fp.step_width_ * (1.0 - fp.r_initial_));
+                ROS_WARN("[fallback] update k: %d <- initial k: %d", final_k, fallback_k);
+                ROS_WARN("[fallback] final slice width: %.4f deg (%.2f mm)", final_slice_angle_deg, final_slice_width_mm);
+                ROS_WARN("[fallback] slice count N: %d (covering 180.00 deg)", N_slices);
+                ROS_WARN("===========================================================");
+            }
+
             ROS_ERROR("Converting slice angle to width: %.4f deg -> %.2f mm (radius: %.2f mm)",
                       outputs.optimal_slice_angle, optimized_slice_width_mm, radius_mm);
 
@@ -190,7 +226,7 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
             cylinder_fitter_outputs.work_mode_      = fp.work_mode_;
             // 变化量（w0_ 存储为 deg）
             cylinder_fitter_outputs.r_initial_ = final_r;
-            cylinder_fitter_outputs.w0_        = final_w0_deg;  // 存储为 deg
+            cylinder_fitter_outputs.w0_        = final_w0_deg; // 存储为 deg
             cylinder_fitter_outputs.k_         = final_k;
 
             // ========== 手动模式回传参数日志打印 ==========
@@ -219,8 +255,7 @@ int CylinderFitter::run_with_rslidar(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_i
                  cylinder_fitter_outputs.slice_distance_, cylinder_fitter_outputs.height_,
                  cylinder_fitter_outputs.step_width_, cylinder_fitter_outputs.step_height_,
                  cylinder_fitter_outputs.r_initial_, cylinder_fitter_outputs.robot_R_arm_,
-                 cylinder_fitter_outputs.work_mode_, cylinder_fitter_outputs.k_, 
-                 cylinder_fitter_outputs.w0_, w0_mm);
+                 cylinder_fitter_outputs.work_mode_, cylinder_fitter_outputs.k_, cylinder_fitter_outputs.w0_, w0_mm);
         // 打印结果
         printResults();
         // 保存可视化数据（包括切片信息）
@@ -1567,6 +1602,25 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
 
     ROS_WARN("[Slice] Generate Slice:Height: (%f,%f) mm, height_total=%d, width_total=%d, surface=%s", slice_height_mm,
              slice_width_mm, num_height_slices, num_width_slices, (opt.surface_ ? "ON" : "OFF"));
+
+    // ========== 计算并存储切片统计信息 ==========
+    // 使用传入的实际切片宽度和切片高度计算
+    // slice_width_mm: 传入的切片宽度（已经是优化后的实际切片弧长）
+    // slice_height_mm: 传入的工作区域单次喷幅高度
+
+    // 单个切片面积 (m^2) = 切片宽 * 切片高
+    double single_slice_area_m2 = slice_width_mm * slice_height_mm / 1e6;
+    // 切片总数
+    int total_slice_count = num_height_slices * num_width_slices;
+    // 总面积 (m^2)
+    double total_slice_area_m2                     = single_slice_area_m2 * total_slice_count;
+    cylinder_fitter_outputs.slice_count_           = total_slice_count;
+    cylinder_fitter_outputs.single_slice_area_m2_ = single_slice_area_m2;
+    cylinder_fitter_outputs.total_slice_area_m2_  = total_slice_area_m2;
+    ROS_INFO("[Slice] Statistics: slice_count=%d, single_slice_area=%.2f m^2 (%.4f mm^2) [width=%.4f mm, height=%.2f "
+             "mm], total_area=%.4f m^2 (%.4f mm^2)",
+             total_slice_count, single_slice_area_m2, single_slice_area_m2 * 1e6, slice_width_mm, slice_height_mm,
+             total_slice_area_m2, total_slice_area_m2 * 1e6);
 
     /*
     if (opt.print_centers_) {
