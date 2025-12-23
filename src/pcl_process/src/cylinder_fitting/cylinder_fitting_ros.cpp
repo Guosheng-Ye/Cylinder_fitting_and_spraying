@@ -303,25 +303,26 @@ void CylinderFittingROS::setOption(const float distance, const float step_width,
     this->fitter_->sliceOptions().print_centers_ = true;  // 切片中心点
 
     this->fitter_->setFittingParams(CylinderFitter::CylinderFitterParams{
-        .min_inliers        = 300,         // 最小内点数
-        .max_inliers        = 600,         // 最大内点数
-        .min_inlier_ratio   = 0.02,        // 最小内点比例
-        .max_inlier_ratio   = 0.50,        // 最大内点比例
-        .min_height_m       = 1.00,        // 最小高度（米）
-        .min_radius_m       = 0.30,        // 最小半径（米）
-        .max_radius_m       = 0.40,        // 最大半径(米)
-        .min_radial_rel_std = 0.00,        // 最小径向相对标准差
-        .max_radial_rel_std = 0.15,        // 最大径向相对标准差
-        .slice_distance_    = distance,    // 喷头工作间距（毫米）
-        .height_            = height,      // 工作区域高度(mm)
-        .step_width_        = step_width,  // 工作区域单次喷幅(mm)
-        .step_height_       = step_height, // 工作区域单次高度(mm)
-        .r_initial_         = lap,         // 初始搭接比例0.5
-        .robot_R_arm_       = arm_reach,   // 机械臂最大臂长1500mm
-        .work_mode_         = mode,        // 工作模式 1 手动 2 自动
-        .k_                 = k,           // 宽度参数
+        .min_inliers              = 300,                        // 最小内点数
+        .max_inliers              = 600,                        // 最大内点数
+        .min_inlier_ratio         = 0.02,                       // 最小内点比例
+        .max_inlier_ratio         = 0.50,                       // 最大内点比例
+        .min_height_m             = 1.00,                       // 最小高度（米）
+        .min_radius_m             = 0.30,                       // 最小半径（米）
+        .max_radius_m             = 0.40,                       // 最大半径(米)
+        .min_radial_rel_std       = 0.00,                       // 最小径向相对标准差
+        .max_radial_rel_std       = 0.15,                       // 最大径向相对标准差
+        .slice_distance_          = distance,                   // 喷头工作间距（毫米）
+        .height_                  = height,                     // 工作区域高度(mm)
+        .step_width_              = step_width,                 // 工作区域单次喷幅(mm)
+        .step_height_             = step_height,                // 工作区域单次高度(mm)
+        .r_initial_               = lap,                        // 初始搭接比例0.5
+        .robot_R_arm_             = arm_reach,                  // 机械臂最大臂长1500mm
+        .virtual_base_to_surface_ = virtual_base_to_surface_,   // 虚拟原点到圆柱表面的距离(mm)
+        .work_mode_               = mode,                       // 工作模式 1 手动 2 自动
+        .k_                       = k,                          // 宽度参数
     });
-    ROS_WARN("Cylinder fitting parameters have been set.");
+    ROS_WARN("Cylinder fitting parameters have been set (virtual_base_to_surface=%.2f mm).", virtual_base_to_surface_);
 }
 
 int main(int argc, char **argv) {

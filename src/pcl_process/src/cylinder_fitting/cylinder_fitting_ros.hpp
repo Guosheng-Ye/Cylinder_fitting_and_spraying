@@ -20,11 +20,16 @@ public:
     CylinderFittingROS(ros::NodeHandle &nh)
         : fitter_(new CylinderFitter(""))
         , tf_lidar2_base_(new FlexedArmTF()) {
+            
+        // 从参数服务器读取虚拟原点到圆柱表面的距离
+        nh.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 1100.0);
+        ROS_INFO("CylinderFittingROS: virtual_base_to_surface = %.2f mm", virtual_base_to_surface_);
+
         // 主控命令订阅
         main_ctl_sub_ = nh.subscribe("/achieve_work_pose", 1, &CylinderFittingROS::mainCtlCallback, this);
         ROS_INFO("CylinderFittingROS: Waiting for main control messages...");
 
-        // 雷达点云数据订阅
+        // 雷达点云数据订阅 source:front_arm_lidar
         lidar_data_sub_ = nh.subscribe("/rslidar_filtered", 1, &CylinderFittingROS::cloudCallback, this);
         ROS_INFO("CylinderFittingROS: Waiting for filtered point clouds...");
 
@@ -81,4 +86,7 @@ private:
     int    last_mode_       = -1;
     int    last_k_          = -1;
     int    last_w0_         = -1;
+
+    // 从 launch 文件读取的参数
+    double virtual_base_to_surface_{1100.0}; // 虚拟原点到圆柱表面的距离 (mm)
 };
