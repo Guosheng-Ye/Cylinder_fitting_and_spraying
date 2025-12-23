@@ -1,0 +1,230 @@
+[ERROR] [1766393126.259078281]: Cylinder fitting is currently enabled by main control command.
+[WARN] [1766393126.287755218]: Fitting params: min_inliers=300, max_inliers=600, min_inlier_ratio=0.0200, max_inlier_ratio=0.5000, min_height_m=1.00, min_radius_m=0.30, max_radius_m=0.40, min_radial_rel_std=0.0000, max_radial_rel_std=0.1500sparay_distance:750.00, work_surface:1100.00,height=600.00, step_weight=300.00, r_initial:0.50, robot_R_arm:1500.00, work_mode:2, k:0
+[INFO] [1766393126.293658226]: Removed wall 1 with 2196 points (angle: 88.39??)
+[INFO] [1766393126.322265665]: Removed wall 2 with 760 points (angle: 88.20??)
+[INFO] [1766393126.322283497]: Wall removal complete: 2 walls removed, 5853 -> 2897 points (kept 49.5%)
+[INFO] [1766393126.324331276]: Extracted 2897/2897 corresponding normals
+[INFO] [1766393126.365717456]: ========== Cylinder Validation ==========
+[INFO] [1766393126.365743775]: Inliers:          624 [300-600] false
+[INFO] [1766393126.365753874]: Inlier ratio:     0.2154 [0.0200-0.5000] ok
+[INFO] [1766393126.365763217]: Height:           5.64 m [1.00-???] ok
+[INFO] [1766393126.365769109]: Radius:           0.368 m [0.300-0.400] ok
+[INFO] [1766393126.365774228]: Radial rel std:   0.0161 [0.0000-0.1500] ok
+[INFO] [1766393126.365779380]: Radial range:     0.0286 (7.8% of radius) [<30%] ok
+[INFO] [1766393126.365786479]: Aspect ratio:     7.66 (H/D) [>1.5] ok
+[INFO] [1766393126.365791656]: Circularity:      0.2917 [>0.15] ok
+[INFO] [1766393126.365796690]: =========================================
+[ERROR] [1766393126.365802110]: Cylinder REJECTED: Inlier count out of range
+[WARN] [1766393126.365820871]: No valid cylinder model found; skipping slicing.
+[WARN] [1766393126.365828539]: No valid cylinder model found; skipping target pose publishing.
+[ERROR] [1766393126.385742297]: Cylinder fitting is currently enabled by main control command.
+[WARN] [1766393126.402927456]: Fitting params: min_inliers=300, max_inliers=600, min_inlier_ratio=0.0200, max_inlier_ratio=0.5000, min_height_m=1.00, min_radius_m=0.30, max_radius_m=0.40, min_radial_rel_std=0.0000, max_radial_rel_std=0.1500sparay_distance:750.00, work_surface:1100.00,height=600.00, step_weight=300.00, r_initial:0.50, robot_R_arm:1500.00, work_mode:2, k:0
+[INFO] [1766393126.408988764]: Removed wall 1 with 2213 points (angle: 88.46??)
+[INFO] [1766393126.433742271]: Removed wall 2 with 747 points (angle: 88.26??)
+[INFO] [1766393126.433770470]: Wall removal complete: 2 walls removed, 5772 -> 2812 points (kept 48.7%)
+[INFO] [1766393126.435762012]: Extracted 2812/2812 corresponding normals
+[INFO] [1766393126.460105730]: ========== Cylinder Validation ==========
+[INFO] [1766393126.460131316]: Inliers:          596 [300-600] ok
+[INFO] [1766393126.460141695]: Inlier ratio:     0.2119 [0.0200-0.5000] ok
+[INFO] [1766393126.460150398]: Height:           5.88 m [1.00-???] ok
+[INFO] [1766393126.460156454]: Radius:           0.380 m [0.300-0.400] ok
+[INFO] [1766393126.460162031]: Radial rel std:   0.0143 [0.0000-0.1500] ok
+[INFO] [1766393126.460167779]: Radial range:     0.0274 (7.2% of radius) [<30%] ok
+[INFO] [1766393126.460175516]: Aspect ratio:     7.74 (H/D) [>1.5] ok
+[INFO] [1766393126.460181488]: Circularity:      0.3333 [>0.15] ok
+[INFO] [1766393126.460186150]: =========================================
+[INFO] [1766393126.460192419]: ========== Cylinder ACCEPTED ==========
+圆柱检测成功:
+  底面中心: [-0.548985   4.72569  0.084651]
+  几何中心: [-0.585336   4.63988   3.02314]
+  顶面中心: [-0.621686   4.55406   5.96163]
+  轴向:     [-0.0123643 -0.0291881   0.999497]
+  半径:     0.379954 m
+  高度:     5.87993 m
+  内点数:   596
+  圆度:     0.333333
+  长宽比:   7.7377
+[INFO] [1766393126.460222371]: =======================================
+[INFO] [1766393126.513865427]: [Distance] Geo center: 5568.701744 mm, Bottom center: 4676.651478 mm
+[ERROR] [1766393126.513890289]: [MAX SLICE ANGLE] Cal max slice angle...
+[INFO] [1766393126.513897103]: Automatic mode: calculating optimal slice width...
+[INFO] [1766393126.513904418]: Virtual robot base position (lidar frame): [-400.10, 3171.56, 0.00] mm
+[INFO] [1766393126.513910975]: Distance from virtual base to cylinder axis: 1479.95 mm (R=379.95 + surface_dist=1100.00)
+[ERROR] [1766393126.513918406]: Fitted cylinder - P_cyl (relative to virtual base): [-185.23, 1468.32, 400.00] mm, axis direction: [-0.0124, -0.0292, -0.9995], radius: 379.95 mm
+[INFO] [1766393126.513925060]: ========== calculate_max_slice_angle inputs ==========
+[INFO] [1766393126.513931188]: robot_max_reach (R_arm): 1500.00 mm
+[INFO] [1766393126.513937025]: cylinder_center (P_cyl): [-185.23, 1468.32, 400.00] mm
+[INFO] [1766393126.513942553]: cylinder_axis (V_axis): [-0.0124, -0.0292, -0.9995]
+[INFO] [1766393126.513947994]: cylinder_radius (r_cyl): 379.95 mm
+[INFO] [1766393126.513952878]: offset_dist (D_offset): 750.00 mm
+[INFO] [1766393126.513958473]: regional_height (H): 600.00 mm
+[INFO] [1766393126.513964094]: Work range Z: [100.00, 700.00] mm
+[INFO] [1766393126.513969308]: Delta_Z_max (max vertical distance from base): 700.00 mm
+[INFO] [1766393126.513975038]: Distance from base to cylinder axis (D): 1468.45 mm
+[INFO] [1766393126.513980619]: R_task (r_cyl + D_offset): 1129.95 mm
+[INFO] [1766393126.513986629]: Effective horizontal reach (R_eff): 1326.65 mm
+[INFO] [1766393126.513992849]: cos_alpha: 0.5042, alpha: 59.72 deg, total_angle: 119.45 deg
+[INFO] [1766393126.513998252]: ========== calculate_max_slice_angle DONE ==========
+[INFO] [1766393126.514004146]: Max Coverage Angle (theta_max) calculated: 119.45 deg before optimization
+[INFO] [1766393126.514009807]: ============ Slice Optimization Algorithm ============
+[WARN] [1766393126.514014893]: ----------- Before Optimization -----------
+[INFO] [1766393126.514020047]: [Before] Target Coverage Angle: 180.00 deg (half cylinder)
+[INFO] [1766393126.514025873]: [Before] Max Coverage Angle per Position: 119.4467 deg
+[INFO] [1766393126.514031325]: [Before] Spray Width (d): 300.00 mm
+[INFO] [1766393126.514037094]: [Before] Overlap Ratio (r): 0.5000 (50.0%)
+[INFO] [1766393126.514042340]: [Before] w0 = d * (1 - r) = 150.00 mm (22.6195 deg on cylinder surface)
+[INFO] [1766393126.514047920]: [Before] Cylinder Radius (R_cyl): 379.95 mm
+[INFO] [1766393126.514053928]: [Step1] Number of robot base positions: N = ceil(180.00 / 119.4467) = 2
+[INFO] [1766393126.514060270]: [Step2] Coverage per position: 90.0000 deg (= 180.00 / 2)
+[INFO] [1766393126.514066098]: [Step3] Number of spray passes per position: k = round(90.0000 / 22.6195) = 4
+[INFO] [1766393126.514073025]: [Step4] Adjusted w0: 22.5000 deg (149.21 mm on cylinder surface)
+[INFO] [1766393126.514078841]: [Step5] Adjusted overlap ratio: r = 1 - 149.21 / 300.00 = 0.5026 (50.3%)
+[WARN] [1766393126.514083905]: ----------- After Optimization -----------
+[INFO] [1766393126.514089047]: [Result] Robot Base Positions: 2
+[INFO] [1766393126.514094603]: [Result] Coverage per Position: 90.0000 deg
+[INFO] [1766393126.514099706]: [Result] Spray Passes per Position (k): 4
+[INFO] [1766393126.514104756]: [Result] Total Spray Passes: 8
+[INFO] [1766393126.514109846]: [Result] Adjusted w0: 22.5000 deg (149.21 mm)
+[INFO] [1766393126.514115000]: [Result] Adjusted Overlap Ratio: 0.5026 (50.3%)
+[INFO] [1766393126.514120673]: [Result] Total Coverage: 180.0000 deg (target: 180.00 deg)
+[WARN] [1766393126.514126012]: Overlap ratio INCREASED by 0.26% (from 50.0% to 50.3%) for exact coverage
+[INFO] [1766393126.514131985]: [Verify] k * w0 = 4 * 22.5000 = 90.0000 deg (error: 0.000000 deg)
+[INFO] [1766393126.514136764]: =============================================
+[INFO] [1766393126.514141791]: --- Slice Planning Result ---
+[INFO] [1766393126.514146913]: Status: Success; Optimization done
+[INFO] [1766393126.514152228]: Max Coverage Angle (theta_max): 119.45 deg
+[INFO] [1766393126.514156936]: Optimal Slice Width (w): 90.00 deg
+[INFO] [1766393126.514164624]: Final Overlap Ratio (r): 0.5026 (50.3%)
+[WARN] [1766393126.514172505]: Overlap ratio increased from 50.0% to 50.3% to achieve integer multiple coverage
+[ERROR] [1766393126.514179417]: PlanningOutputs Calculated max coverage angle: 119.45 deg, optimal slice angle: 90.00 deg, final overlap ratio: 0.50, status: Success; Optimization done
+[WARN] [1766393126.514185081]: ========== AUTO MODE OUTPUT PARAMETERS ==========
+[WARN] [1766393126.514191274]: [callback] update r_initial r: 0.5026 (50.26%) <- origin: 0.5000 (50.00%)
+[WARN] [1766393126.514198380]: [callback] update w0: 22.5000 deg (149.21 mm) <- origin: 150.00 mm
+[WARN] [1766393126.514203687]: [callback] update k in once move: 4
+[WARN] [1766393126.514208851]: [callback] update N move nums: 2
+[WARN] [1766393126.514214099]: [callback] update slice angle: 90.0000 deg
+[WARN] [1766393126.514219238]: [callback] update total coverage angle: 180.0000 deg (= 90.0000 * 2)
+[WARN] [1766393126.514224338]: =================================================
+[INFO] [1766393126.558852759]: ======== Coverage Visualization ========
+[INFO] [1766393126.558920441]: Virtual Base (m): [-0.400, 3.172, 0.000]
+[INFO] [1766393126.558938302]: Robot Max Reach: 1.50 m
+[INFO] [1766393126.558955924]: Effective Reach at Z=0.70 m: 1.327 m
+[INFO] [1766393126.558982182]: Coverage Angle: 119.45 deg (half: 59.72 deg)
+[INFO] [1766393126.559000405]: Work Height Range: [0.10, 0.70] m
+[INFO] [1766393126.559023744]: Virtual Base Radius: 1.480 m (R=0.380 + 1.100)
+[INFO] [1766393126.559040802]: Work Point Radius: 1.130 m (R=0.380 + 0.750)
+[INFO] [1766393126.559057398]: =========================================
+[ERROR] [1766393126.559089095]: Converting slice angle to width: 90.0000 deg -> 596.83 mm (radius: 379.95 mm)
+[WARN] [1766393126.559118853]: Starting cylinder slicing======ANGEL_RANGE_DEG:[180.000], SLICE_HEIGHT_MM:[600.000], SLICE_WIDTH_MM:[596.830], WORK_DIS:[750.000]
+[WARN] [1766393126.570095629]: [Slice] Generate Slice:Height: (600.000000,596.829719) mm, height_total=10, width_total=2, surface=OFF
+[INFO] [1766393126.570117956]: [Slice] Statistics: slice_count=20, single_slice_area=0.36 m^2 (358097.8314 mm^2) [width=596.8297 mm, height=600.00 mm], total_area=7.1620 m^2 (7161956.6283 mm^2)
+[WARN] [1766393126.570140133]: Final output parameters:
+ slice_distance=750.00 mm, height=600.00 mm, step_width=300.00 mm, step_height=100.00 mm, r_initial=0.5026, robot_R_arm=1500.00 mm, work_mode=2, k=4, w0=22.5000 deg (149.21 mm)
+
+[INFO] [1766393126.570170040]: Cylinder
+[INFO] [1766393126.570183328]: Bottom center: [-548.98, 4725.69, 84.65]
+[INFO] [1766393126.570205618]: Axis: [-0.01, -0.03, 1.00]
+[INFO] [1766393126.570214255]: Radius: 379.95 mm
+[INFO] [1766393126.570223941]: Angle: 103.86 deg
+[INFO] [1766393126.570232949]: Height: 5879.93 mm
+[ERROR] [1766393126.570244881]: Publishing target pose list...
+[INFO] [1766393126.570256658]: Cylinder Original Max Z in Base (mm): 8361.63
+[INFO] [1766393126.570266191]: Working Max Z (Original + Offset) in Base (mm): 8361.63
+[INFO] [1766393126.570275781]: Z Offset Applied (m): 2.000
+[INFO] [1766393126.570286150]: Valid layers count: 7 (layers with at least one valid slice)
+[ERROR] [1766393126.570298903]: Source pos_circle_center: [-618.05, 4562.65, 5667.78], pos_spray_center: [-349.307,4294.093,5663.260] ,work_point: [181.174, 3763.989,5654.341]
+[ERROR] [1766393126.570313480]: Slice id(base mm): 1,  circle_center:[-28.05, 7852.65, 10067.78], spray_center:[240.693, 7584.093, 10063.260], work_point:[771.174, 7053.989, 10054.341]
+[WARN] [1766393126.570325025]: Slice ID 1 (layer 9) Z (10063.26 mm) - entire layer exceeds max working Z (8361.63 mm). Skipping.
+
+[ERROR] [1766393126.570337928]: Source pos_circle_center: [-618.05, 4562.65, 5667.78], pos_spray_center: [-886.602,4294.093,5656.613] ,work_point: [-1416.700, 3763.989,5634.575]
+[ERROR] [1766393126.570351324]: Slice id(base mm): 2,  circle_center:[-28.05, 7852.65, 10067.78], spray_center:[-296.602, 7584.093, 10056.613], work_point:[-826.700, 7053.989, 10034.575]
+[WARN] [1766393126.570361296]: Slice ID 2 (layer 9) Z (10056.61 mm) - entire layer exceeds max working Z (8361.63 mm). Skipping.
+
+[ERROR] [1766393126.570375374]: Source pos_circle_center: [-610.78, 4579.81, 5080.08], pos_spray_center: [-879.331,4311.255,5068.916] ,work_point: [-1409.429, 3781.151,5046.877]
+[ERROR] [1766393126.570387323]: Slice id(base mm): 3,  circle_center:[-20.78, 7869.81, 9480.08], spray_center:[-289.331, 7601.255, 9468.916], work_point:[-819.429, 7071.151, 9446.877]
+[WARN] [1766393126.570397661]: Slice ID 3 (layer 8) Z (9468.92 mm) - entire layer exceeds max working Z (8361.63 mm). Skipping.
+
+[ERROR] [1766393126.570410087]: Source pos_circle_center: [-610.78, 4579.81, 5080.08], pos_spray_center: [-342.037,4311.255,5075.562] ,work_point: [188.444, 3781.151,5066.644]
+[ERROR] [1766393126.570423333]: Slice id(base mm): 4,  circle_center:[-20.78, 7869.81, 9480.08], spray_center:[247.963, 7601.255, 9475.562], work_point:[778.444, 7071.151, 9466.644]
+[WARN] [1766393126.570433081]: Slice ID 4 (layer 8) Z (9475.56 mm) - entire layer exceeds max working Z (8361.63 mm). Skipping.
+
+[ERROR] [1766393126.570445297]: Source pos_circle_center: [-603.51, 4596.97, 4492.38], pos_spray_center: [-334.767,4328.417,4487.865] ,work_point: [195.714, 3798.313,4478.946]
+[ERROR] [1766393126.570457126]: Slice id(base mm): 5,  circle_center:[-13.51, 7886.97, 8892.38], spray_center:[255.233, 7618.417, 8887.865], work_point:[785.714, 7088.313, 8878.946]
+[WARN] [1766393126.570466834]: Slice ID 5 (layer 7) Z (8887.86 mm) - entire layer exceeds max working Z (8361.63 mm). Skipping.
+
+[ERROR] [1766393126.570478503]: Source pos_circle_center: [-603.51, 4596.97, 4492.38], pos_spray_center: [-872.061,4328.417,4481.218] ,work_point: [-1402.159, 3798.313,4459.180]
+[ERROR] [1766393126.570490117]: Slice id(base mm): 6,  circle_center:[-13.51, 7886.97, 8892.38], spray_center:[-282.061, 7618.417, 8881.218], work_point:[-812.159, 7088.313, 8859.180]
+[WARN] [1766393126.570499947]: Slice ID 6 (layer 7) Z (8881.22 mm) - entire layer exceeds max working Z (8361.63 mm). Skipping.
+
+[ERROR] [1766393126.570512060]: Source pos_circle_center: [-596.24, 4614.13, 3904.69], pos_spray_center: [-864.791,4345.580,3893.521] ,work_point: [-1394.889, 3815.476,3871.483]
+[ERROR] [1766393126.570524031]: Slice id(base mm): 7,  circle_center:[-6.24, 7904.13, 8304.69], spray_center:[-274.791, 7635.580, 8293.521], work_point:[-804.889, 7105.476, 8271.483]
+[INFO] [1766393126.570534133]:  Target ID: 1, Work Position in Base (m): [-0.805, 7.105, 8.271]
+[WARN] [1766393126.570550349]: Cylinder ID: 1,circle:[-6.241,7904.133,8304.685],=> Zspray_center:[-274.791,7635.580,8293.521],  => work_point:[-0.805,7.105,8.271], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.570571223]: Source pos_circle_center: [-596.24, 4614.13, 3904.69], pos_spray_center: [-327.497,4345.580,3900.167] ,work_point: [202.984, 3815.476,3891.249]
+[ERROR] [1766393126.570584356]: Slice id(base mm): 8,  circle_center:[-6.24, 7904.13, 8304.69], spray_center:[262.503, 7635.580, 8300.167], work_point:[792.984, 7105.476, 8291.249]
+[INFO] [1766393126.570594751]:  Target ID: 2, Work Position in Base (m): [0.793, 7.105, 8.291]
+[WARN] [1766393126.570608618]: Cylinder ID: 2,circle:[-6.241,7904.133,8304.685],=> Zspray_center:[262.503,7635.580,8300.167],  => work_point:[0.793,7.105,8.291], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.570627248]: Source pos_circle_center: [-588.97, 4631.30, 3316.99], pos_spray_center: [-320.226,4362.742,3312.469] ,work_point: [210.255, 3832.638,3303.551]
+[ERROR] [1766393126.570643222]: Slice id(base mm): 9,  circle_center:[1.03, 7921.30, 7716.99], spray_center:[269.774, 7652.742, 7712.469], work_point:[800.255, 7122.638, 7703.551]
+[INFO] [1766393126.570656587]:  Target ID: 3, Work Position in Base (m): [0.800, 7.123, 7.704]
+[WARN] [1766393126.570677535]: Cylinder ID: 3,circle:[1.029,7921.295,7716.988],=> Zspray_center:[269.774,7652.742,7712.469],  => work_point:[0.800,7.123,7.704], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.570701189]: Source pos_circle_center: [-588.97, 4631.30, 3316.99], pos_spray_center: [-857.521,4362.742,3305.823] ,work_point: [-1387.619, 3832.638,3283.785]
+[ERROR] [1766393126.570718923]: Slice id(base mm): 10,  circle_center:[1.03, 7921.30, 7716.99], spray_center:[-267.521, 7652.742, 7705.823], work_point:[-797.619, 7122.638, 7683.785]
+[INFO] [1766393126.570732868]:  Target ID: 4, Work Position in Base (m): [-0.798, 7.123, 7.684]
+[WARN] [1766393126.570753270]: Cylinder ID: 4,circle:[1.029,7921.295,7716.988],=> Zspray_center:[-267.521,7652.742,7705.823],  => work_point:[-0.798,7.123,7.684], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.570773078]: Source pos_circle_center: [-581.70, 4648.46, 2729.29], pos_spray_center: [-850.251,4379.904,2718.125] ,work_point: [-1380.349, 3849.800,2696.087]
+[ERROR] [1766393126.570785373]: Slice id(base mm): 11,  circle_center:[8.30, 7938.46, 7129.29], spray_center:[-260.251, 7669.904, 7118.125], work_point:[-790.349, 7139.800, 7096.087]
+[INFO] [1766393126.570798683]:  Target ID: 5, Work Position in Base (m): [-0.790, 7.140, 7.096]
+[WARN] [1766393126.570817536]: Cylinder ID: 5,circle:[8.299,7938.458,7129.290],=> Zspray_center:[-260.251,7669.904,7118.125],  => work_point:[-0.790,7.140,7.096], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.570831769]: Source pos_circle_center: [-581.70, 4648.46, 2729.29], pos_spray_center: [-312.956,4379.904,2724.772] ,work_point: [217.525, 3849.800,2715.854]
+[ERROR] [1766393126.570849146]: Slice id(base mm): 12,  circle_center:[8.30, 7938.46, 7129.29], spray_center:[277.044, 7669.904, 7124.772], work_point:[807.525, 7139.800, 7115.854]
+[INFO] [1766393126.570862056]:  Target ID: 6, Work Position in Base (m): [0.808, 7.140, 7.116]
+[WARN] [1766393126.570881366]: Cylinder ID: 6,circle:[8.299,7938.458,7129.290],=> Zspray_center:[277.044,7669.904,7124.772],  => work_point:[0.808,7.140,7.116], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.570900691]: Source pos_circle_center: [-574.43, 4665.62, 2141.59], pos_spray_center: [-305.686,4397.067,2137.074] ,work_point: [224.795, 3866.963,2128.156]
+[ERROR] [1766393126.570916253]: Slice id(base mm): 13,  circle_center:[15.57, 7955.62, 6541.59], spray_center:[284.314, 7687.067, 6537.074], work_point:[814.795, 7156.963, 6528.156]
+[INFO] [1766393126.570929207]:  Target ID: 7, Work Position in Base (m): [0.815, 7.157, 6.528]
+[WARN] [1766393126.570943301]: Cylinder ID: 7,circle:[15.570,7955.620,6541.593],=> Zspray_center:[284.314,7687.067,6537.074],  => work_point:[0.815,7.157,6.528], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.570957484]: Source pos_circle_center: [-574.43, 4665.62, 2141.59], pos_spray_center: [-842.981,4397.067,2130.428] ,work_point: [-1373.079, 3866.963,2108.390]
+[ERROR] [1766393126.570969806]: Slice id(base mm): 14,  circle_center:[15.57, 7955.62, 6541.59], spray_center:[-252.981, 7687.067, 6530.428], work_point:[-783.079, 7156.963, 6508.390]
+[INFO] [1766393126.570985184]:  Target ID: 8, Work Position in Base (m): [-0.783, 7.157, 6.508]
+[WARN] [1766393126.571020584]: Cylinder ID: 8,circle:[15.570,7955.620,6541.593],=> Zspray_center:[-252.981,7687.067,6530.428],  => work_point:[-0.783,7.157,6.508], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.571056292]: Source pos_circle_center: [-567.16, 4682.78, 1553.90], pos_spray_center: [-835.710,4414.229,1542.730] ,work_point: [-1365.808, 3884.125,1520.692]
+[ERROR] [1766393126.571086543]: Slice id(base mm): 15,  circle_center:[22.84, 7972.78, 5953.90], spray_center:[-245.710, 7704.229, 5942.730], work_point:[-775.808, 7174.125, 5920.692]
+[INFO] [1766393126.571113150]:  Target ID: 9, Work Position in Base (m): [-0.776, 7.174, 5.921]
+[WARN] [1766393126.571138869]: Cylinder ID: 9,circle:[22.840,7972.783,5953.895],=> Zspray_center:[-245.710,7704.229,5942.730],  => work_point:[-0.776,7.174,5.921], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.571168241]: Source pos_circle_center: [-567.16, 4682.78, 1553.90], pos_spray_center: [-298.416,4414.229,1549.377] ,work_point: [232.065, 3884.125,1540.459]
+[ERROR] [1766393126.571192499]: Slice id(base mm): 16,  circle_center:[22.84, 7972.78, 5953.90], spray_center:[291.584, 7704.229, 5949.377], work_point:[822.065, 7174.125, 5940.459]
+[INFO] [1766393126.571216540]:  Target ID: 10, Work Position in Base (m): [0.822, 7.174, 5.940]
+[WARN] [1766393126.571245378]: Cylinder ID: 10,circle:[22.840,7972.783,5953.895],=> Zspray_center:[291.584,7704.229,5949.377],  => work_point:[0.822,7.174,5.940], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.571272130]: Source pos_circle_center: [-559.89, 4699.94, 966.20], pos_spray_center: [-291.146,4431.392,961.679] ,work_point: [239.335, 3901.288,952.761]
+[ERROR] [1766393126.571296328]: Slice id(base mm): 17,  circle_center:[30.11, 7989.94, 5366.20], spray_center:[298.854, 7721.392, 5361.679], work_point:[829.335, 7191.288, 5352.761]
+[INFO] [1766393126.571315186]:  Target ID: 11, Work Position in Base (m): [0.829, 7.191, 5.353]
+[WARN] [1766393126.571347908]: Cylinder ID: 11,circle:[30.110,7989.945,5366.197],=> Zspray_center:[298.854,7721.392,5361.679],  => work_point:[0.829,7.191,5.353], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.571381514]: Source pos_circle_center: [-559.89, 4699.94, 966.20], pos_spray_center: [-828.440,4431.392,955.033] ,work_point: [-1358.538, 3901.288,932.995]
+[ERROR] [1766393126.571406442]: Slice id(base mm): 18,  circle_center:[30.11, 7989.94, 5366.20], spray_center:[-238.440, 7721.392, 5355.033], work_point:[-768.538, 7191.288, 5332.995]
+[INFO] [1766393126.571431493]:  Target ID: 12, Work Position in Base (m): [-0.769, 7.191, 5.333]
+[WARN] [1766393126.571457134]: Cylinder ID: 12,circle:[30.110,7989.945,5366.197],=> Zspray_center:[-238.440,7721.392,5355.033],  => work_point:[-0.769,7.191,5.333], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.571498398]: Source pos_circle_center: [-552.62, 4717.11, 378.50], pos_spray_center: [-821.170,4448.554,367.335] ,work_point: [-1351.268, 3918.450,345.297]
+[ERROR] [1766393126.571521882]: Slice id(base mm): 19,  circle_center:[37.38, 8007.11, 4778.50], spray_center:[-231.170, 7738.554, 4767.335], work_point:[-761.268, 7208.450, 4745.297]
+[INFO] [1766393126.571540716]:  Target ID: 13, Work Position in Base (m): [-0.761, 7.208, 4.745]
+[WARN] [1766393126.571574009]: Cylinder ID: 13,circle:[37.380,8007.107,4778.500],=> Zspray_center:[-231.170,7738.554,4767.335],  => work_point:[-0.761,7.208,4.745], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.571602703]: Source pos_circle_center: [-552.62, 4717.11, 378.50], pos_spray_center: [-283.876,4448.554,373.982] ,work_point: [246.605, 3918.450,365.064]
+[ERROR] [1766393126.571634608]: Slice id(base mm): 20,  circle_center:[37.38, 8007.11, 4778.50], spray_center:[306.124, 7738.554, 4773.982], work_point:[836.605, 7208.450, 4765.064]
+[INFO] [1766393126.571656991]:  Target ID: 14, Work Position in Base (m): [0.837, 7.208, 4.765]
+[WARN] [1766393126.571682240]: Cylinder ID: 14,circle:[37.380,8007.107,4778.500],=> Zspray_center:[306.124,7738.554,4773.982],  => work_point:[0.837,7.208,4.765], cylinder_axis:[-0.012,-0.029,0.999], Radius: 379.954 mm, Angle: 90.000 deg, Height: 600.000 mm
+
+[ERROR] [1766393126.571716653]: ONCE cylinder fitting completed.
+
