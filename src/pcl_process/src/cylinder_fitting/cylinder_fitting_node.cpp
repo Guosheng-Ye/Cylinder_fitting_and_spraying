@@ -1554,11 +1554,21 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
 
             { // 可视化工作点
                 std::lock_guard<std::mutex> lock(viewer_mutex_);
+                // 橙色工作点球
                 viewer_->addSphere(
                     pcl::PointXYZ(sd.work_mm.x() / 1000.0f, sd.work_mm.y() / 1000.0f, sd.work_mm.z() / 1000.0f),
-                    8.0 / 1000.0, 0.0, 1.0, 0.0,
-                    "slice_workpoint_" + std::to_string(sd.id)); // 绿色工作点
+                    25.0 / 1000.0, 1.0, 0.5, 0.0,
+                    "slice_workpoint_" + std::to_string(sd.id));
                 slice_shape_ids_.push_back("slice_workpoint_" + std::to_string(sd.id));
+                
+                // 从切片表面中心到工作点的连线（青色），用于验证工作点对应关系
+                // std::string link_id = "slice_link_" + std::to_string(sd.id);
+                // viewer_->addLine(
+                //     pcl::PointXYZ(sd.center_mm.x() / 1000.0f, sd.center_mm.y() / 1000.0f, sd.center_mm.z() / 1000.0f),
+                //     pcl::PointXYZ(sd.work_mm.x() / 1000.0f, sd.work_mm.y() / 1000.0f, sd.work_mm.z() / 1000.0f),
+                //     0.0, 1.0, 1.0, link_id);  // 青色连线
+                // viewer_->setShapeRenderingProperties(pcl::visualization::PCL_VISUALIZER_LINE_WIDTH, 2.0, link_id);
+                // slice_shape_ids_.push_back(link_id);
             }
 
             // 该切片的角度跨度 (总角度 / 宽度切片数)
@@ -1659,14 +1669,6 @@ void CylinderFitter::visualizeResults() {
     // 白色原始点云
     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> white(cloud_, 255, 255, 255);
     viewer_->addPointCloud<pcl::PointXYZ>(cloud_, white, "cloud");
-
-    // 绿色内点
-    // if (cylinder_points && !cylinder_points->empty()) {
-    //     pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> green(cylinder_points, 0, 255, 0);
-    //     viewer_->addPointCloud<pcl::PointXYZ>(cylinder_points, green, "cylinder_points");
-    //     viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
-    //     "cylinder_points");
-    // }
 
     // 计算圆柱高度范围（内点沿轴方向投影）
     double          min_proj  = std::numeric_limits<double>::max();
@@ -1825,7 +1827,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     Eigen::Vector3f axis_unit    = cylinder_model_.axis.normalized();
     double          radius_m     = cylinder_model_.radius;
 
-    // 1. ====== 虚拟机械臂原点（大红球） ======
+    // 1. 虚拟机械臂原点（大红球） 
     viewer_->addSphere(pcl::PointXYZ(virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z()), 0.05, 1.0, 0.0, 0.0,
                        "virtual_robot_base");
 
@@ -1833,12 +1835,12 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     viewer_->addText3D("Virtual Base", pcl::PointXYZ(virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z() + 0.1),
                        0.05, 1.0, 0.0, 0.0, "virtual_base_label");
 
-    // 2. ====== 虚拟原点到圆柱几何中心的连线（紫色） ======
+    // 2. 虚拟原点到圆柱几何中心的连线（紫色）  
     viewer_->addLine(pcl::PointXYZ(virtual_base_m.x(), virtual_base_m.y(), virtual_base_m.z()),
                      pcl::PointXYZ(geo_center_m.x(), geo_center_m.y(), geo_center_m.z()), 1.0, 0.0, 1.0,
                      "virtual_base_to_cylinder");
 
-    // 3. ====== 球形工作空间（半透明红色线框） ======
+    // 3.  球形工作空间（半透明红色线框） 
     // 用多个圆环表示球体
     int n_rings           = 12;
     int n_points_per_ring = 36;
@@ -1881,7 +1883,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
         viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, ring_id);
     }
 
-    // 4. ====== 有效水平臂展圆（在工作高度处） ======
+    // 4.  有效水平臂展圆（在工作高度处） 
     double z_work_max  = work_height_center_m + work_height_range_m / 2.0;
     double z_work_min  = work_height_center_m - work_height_range_m / 2.0;
     double delta_z_max = std::max(std::abs(z_work_max - virtual_base_m.z()), std::abs(z_work_min - virtual_base_m.z()));
@@ -1908,7 +1910,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
                                               "eff_reach_ring_bottom");
 
-    // 5. ====== 覆盖角度范围（绿色扇形区域） ======
+    // 5.  覆盖角度范围（绿色扇形区域） 
     // 计算从虚拟原点到圆柱中心的方向（作为覆盖角度的中心方向）
     Eigen::Vector3f to_cylinder = geo_center_m - virtual_base_m;
     to_cylinder.z()             = 0; // 投影到XY平面
@@ -1954,7 +1956,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     viewer_->addPointCloud<pcl::PointXYZ>(coverage_surface, coverage_color, "coverage_surface");
     viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, "coverage_surface");
 
-    // 6. ====== 覆盖边界线（亮绿色） ======
+    // 6.  覆盖边界线（亮绿色） 
     // 左边界
     pcl::PointCloud<pcl::PointXYZ>::Ptr left_boundary(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::PointCloud<pcl::PointXYZ>::Ptr right_boundary(new pcl::PointCloud<pcl::PointXYZ>);
@@ -1981,11 +1983,11 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "left_boundary");
     viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "right_boundary");
 
-    // 7. ====== 工作高度范围线（品红色） ======
+    // 7.  工作高度范围线（品红色） 
     viewer_->addLine(pcl::PointXYZ(geo_center_m.x(), geo_center_m.y(), z_work_min),
                      pcl::PointXYZ(geo_center_m.x(), geo_center_m.y(), z_work_max), 1.0, 0.0, 1.0, "work_height_range");
 
-    // 8. ====== 从虚拟原点到覆盖边界的射线（显示臂展约束） ======
+    // 8.  从虚拟原点到覆盖边界的射线（显示臂展约束） 
     // 计算覆盖边界在工作半径上的点
     double          z_mid          = work_height_center_m;
     double          t_mid          = (z_mid - geo_center_m.z()) / axis_unit.z();
@@ -2006,7 +2008,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
                      pcl::PointXYZ(right_work_pt.x(), right_work_pt.y(), right_work_pt.z()), 0.0, 1.0, 1.0,
                      "reach_ray_right");
 
-    // 9. ====== 虚拟基座轨迹圆（紫色，以圆柱轴线在Z=0的投影为圆心） ======
+    // 9.  虚拟基座轨迹圆（紫色，以圆柱轴线在Z=0的投影为圆心） 
     // 虚拟基座在Z=0平面，所以紫色圆也应该在Z=0平面
     // 圆心是圆柱几何中心在XY平面的投影
     double          virtual_base_radius_m = radius_m + fitting_params_.virtual_base_to_surface_ * scale;
@@ -2024,7 +2026,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     viewer_->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3,
                                               "virtual_base_trajectory_ring");
 
-    // 10. ====== 工作点轨迹圆（绿色，以圆柱轴线在Z=0的投影为圆心） ======
+    // 10.  工作点轨迹圆（绿色，以圆柱轴线在Z=0的投影为圆心） 
     // 工作点半径 = 圆柱半径 + 工作距离(slice_distance_)
     double                              work_point_radius_m = radius_m + fitting_params_.slice_distance_ * scale;
     pcl::PointCloud<pcl::PointXYZ>::Ptr work_point_ring(new pcl::PointCloud<pcl::PointXYZ>);
