@@ -152,11 +152,11 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 ti_msg.spray_center[1] = A_final_mm.y();
                 ti_msg.spray_center[2] = A_final_mm.z();
 
-                // 圆柱轴向
-                Eigen::Vector3f axis              = fitter_->axis().normalized();
-                ti_msg.cylinder_axis_direction[0] = axis.x();
-                ti_msg.cylinder_axis_direction[1] = axis.y();
-                ti_msg.cylinder_axis_direction[2] = axis.z();
+                // 圆柱轴向 (使用实际切片时的轴向，可能是理想轴向)
+                Eigen::Vector3f axis_used         = fitter_->axisUsed();
+                ti_msg.cylinder_axis_direction[0] = axis_used.x();
+                ti_msg.cylinder_axis_direction[1] = axis_used.y();
+                ti_msg.cylinder_axis_direction[2] = axis_used.z();
                 // 半径
                 ti_msg.radius = fitter_->radius() * 1000.0f; // m -> mm
                 // 其他参数

@@ -76,7 +76,7 @@ public:
         double w0_{0.0};             // 有效喷幅宽度 (deg)
 
         // 切片统计信息
-        int    slice_count_{0};             // 切片总数
+        int    slice_count_{0};            // 切片总数
         double single_slice_area_m2_{0.0}; // 单个切片面积 (m^2)
         double total_slice_area_m2_{0.0};  // 切片总面积 (m^2) = 单个切片面积 * 切片数
     };
@@ -108,6 +108,13 @@ public:
         int    work_mode_{2};                  // 工作模式 1 手动,2 自动 动态计算回传
         int    k_{0};                          // 手动模式下的倍数k
         float  w0_{0};                         // 有效喷副宽度
+
+        // 轴向校正参数
+        // 当 use_ideal_axis_ = true 且拟合轴向与竖直方向偏差 < 阈值时：使用理想轴向 (0, 0, 1)
+        // 当偏差超过阈值时：保留拟合轴向并输出警告
+        // 当 use_ideal_axis_ = false 时：始终使用拟合轴向
+        bool use_ideal_axis_{true};             // 是否使用理想竖直轴向 (0, 0, 1)
+        double axis_angle_threshold_deg_{15.0}; // 拟合轴向与竖直方向夹角阈值 (度)，小于此值时使用理想轴向
     };
 
     void                        setFittingParams(const CylinderFitterParams &p) { fitting_params_ = p; }
@@ -149,7 +156,18 @@ public:
 
     // 获取拟合结果
     bool                                hasModel() const { return cylinder_model_.valid; }
-    Eigen::Vector3f                     axis() const { return cylinder_model_.axis; }
+    Eigen::Vector3f                     axis() const { return cylinder_model_.axis; }  // 原始拟合轴向
+    /// @brief 获取实际使用的轴向（考虑理想轴向校正）
+    Eigen::Vector3f                     axisUsed() const {
+        Eigen::Vector3f axis_fitted = cylinder_model_.axis.normalized();
+        Eigen::Vector3f ideal_axis(0.0f, 0.0f, 1.0f);
+        double cos_angle = std::abs(axis_fitted.dot(ideal_axis));
+        double angle_diff_deg = std::acos(std::min(1.0, (double)cos_angle)) * 180.0 / M_PI;
+        if (fitting_params_.use_ideal_axis_ && angle_diff_deg < fitting_params_.axis_angle_threshold_deg_) {
+            return ideal_axis;
+        }
+        return axis_fitted;
+    }
     Eigen::Vector3f                     bottomCenter() const { return cylinder_model_.bottom_center; }
     Eigen::Vector3f                     topCenter() const { return cylinder_model_.top_center; }
     Eigen::Vector3f                     geoCenter() const { return cylinder_model_.geo_center; }
