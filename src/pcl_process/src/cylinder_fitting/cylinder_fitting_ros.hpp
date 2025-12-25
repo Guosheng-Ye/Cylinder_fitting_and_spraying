@@ -20,9 +20,9 @@ public:
     CylinderFittingROS(ros::NodeHandle &nh)
         : fitter_(new CylinderFitter(""))
         , tf_lidar2_base_(new FlexedArmTF()) {
-            
+
         // 从参数服务器读取虚拟原点到圆柱表面的距离
-        nh.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 1100.0);
+        nh.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 900.0);
         ROS_INFO("CylinderFittingROS: virtual_base_to_surface = %.2f mm", virtual_base_to_surface_);
 
         // 主控命令订阅
@@ -56,7 +56,7 @@ public:
 
 public:
     void setOption(const float distance, const float step_width, const float step_height, const float height,
-                   const float lap, const int arm_reach, const int mode, const int k);
+                   const float lap, const double arm_reach, const int mode, const int k);
 
 private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
@@ -82,7 +82,7 @@ private:
     double last_step_width_ = -1.0;
     double last_height_     = -1.0;
     double last_lap_        = -1.0;
-    int    last_arm_reach_  = -1;
+    double last_arm_reach_  = -1;
     int    last_mode_       = -1;
     int    last_k_          = -1;
     int    last_w0_         = -1;
