@@ -1580,7 +1580,7 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                 // 2. 计算单位方向向量 dir
                 Eigen::Vector3f dir = v / norm;
                 // 3. 计算工作点 B = A + dir * offset
-                sd.work_mm = sd.center_mm + dir * fitting_params_.slice_distance_;
+                sd.work_mm = sd.center_mm + dir * fitting_params_.virtual_base_to_surface_;
             }
 
             { // 可视化工作点

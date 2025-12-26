@@ -104,7 +104,7 @@ public:
         // 工艺参数
         double r_initial_{0.50};               // 初始搭接比例0.5
         double robot_R_arm_{1500.0};           // 机械臂最大臂长1500mm
-        double virtual_base_to_surface_{1100}; // 虚拟原点到圆柱表面的距离(mm)
+        double virtual_base_to_surface_{600.0}; // 虚拟原点到圆柱表面的距离(mm)
         int    work_mode_{2};                  // 工作模式 1 手动,2 自动 动态计算回传
         int    k_{0};                          // 手动模式下的倍数k
         float  w0_{0};                         // 有效喷副宽度
