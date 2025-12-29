@@ -8,13 +8,39 @@
 RSLidarFilterNode::RSLidarFilterNode(ros::NodeHandle &nh) {
     sub_ = nh.subscribe("/rslidar_points", 10, &RSLidarFilterNode::cloudCallback, this);
     pub_ = nh.advertise<sensor_msgs::PointCloud2>("/rslidar_filtered", 10);
+    // 每1秒检查一次是否有数据输入
+    watchdog_timer_ = nh.createTimer(ros::Duration(1.0), &RSLidarFilterNode::watchdogCallback, this);
+    last_msg_time_ = ros::Time::now();
+}
+
+void RSLidarFilterNode::watchdogCallback(const ros::TimerEvent &event) {
+    double elapsed = (ros::Time::now() - last_msg_time_).toSec();
+    // 超过2秒没有数据输入，认为数据断开
+    if (elapsed > 2.0 && data_active_) {
+        ROS_WARN_STREAM("[Angle Filter] No point cloud input for " << elapsed << " seconds");
+        data_active_ = false;
+        last_has_output_ = false; // 重置输出状态，恢复时重新打印
+    }
 }
 
 void RSLidarFilterNode::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {
+    // 更新最后消息时间
+    last_msg_time_ = ros::Time::now();
+    if (!data_active_) {
+        ROS_INFO_STREAM("[Angle Filter] Point cloud input resumed");
+        data_active_ = true;
+    }
+
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZI>);
     pcl::fromROSMsg(*msg, *cloud);
 
-    if (cloud->empty()) return;
+    if (cloud->empty()) {
+        if (last_has_output_) {
+            ROS_WARN_STREAM("[Angle Filter] No input points received");
+            last_has_output_ = false;
+        }
+        return;
+    }
 
     // ============== 角度过滤（侧向安装：+Y 为前向，+X 为右侧） ==============
     // 目标：保留相对于 +Y 前向左右各20度（总 40 度扇区）内且位于传感器前方 (y>0) 的点。
@@ -38,8 +64,17 @@ void RSLidarFilterNode::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &ms
         // }
     }
 
-    ROS_INFO_STREAM("[Angle Filter] Input: " << cloud->size() << " -> Output: " << filtered->size()
-                                             << " points (forward " << (angle_limit * 180.0 / M_PI) << " around +Y)");
+    // 仅在有点/无点状态切换时打印
+    bool has_output = !filtered->empty();
+    if (has_output != last_has_output_) {
+        if (has_output) {
+            ROS_INFO_STREAM("[Angle Filter] Input: " << cloud->size() << " -> Output: " << filtered->size()
+                                                     << " points (forward " << (angle_limit * 180.0 / M_PI) << " around +Y)");
+        } else {
+            ROS_WARN_STREAM("[Angle Filter] No points in filtered output (Input: " << cloud->size() << " points)");
+        }
+        last_has_output_ = has_output;
+    }
 
     // ============== 发布过滤结果 ==============
     sensor_msgs::PointCloud2 output_msg;
