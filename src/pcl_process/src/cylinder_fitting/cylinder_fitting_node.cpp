@@ -1631,7 +1631,8 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
     {
         std::lock_guard<std::mutex> lock(viewer_mutex_);
         int                         ring_samples   = 96;
-        double                      work_radius_mm = radius_mm + fitting_params_.slice_distance_;
+        // 使用 virtual_base_to_surface_ 与 sd.work_mm 计算一致
+        double                      work_radius_mm = radius_mm + fitting_params_.virtual_base_to_surface_;
         double                      h_mm           = height_mm / 2.0; // 在中间高度绘制
         for (int k = 0; k < ring_samples; ++k) {
             double          th0 = 2.0 * M_PI * k / ring_samples;
@@ -2057,8 +2058,8 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
                                               "virtual_base_trajectory_ring");
 
     // 10.  工作点轨迹圆（绿色，以圆柱轴线在Z=0的投影为圆心）
-    // 工作点半径 = 圆柱半径 + 工作距离(slice_distance_)
-    double                              work_point_radius_m = radius_m + fitting_params_.slice_distance_ * scale;
+    // 工作点半径 = 圆柱半径 + virtual_base_to_surface_（与 sd.work_mm 计算一致）
+    double                              work_point_radius_m = radius_m + fitting_params_.virtual_base_to_surface_ * scale;
     pcl::PointCloud<pcl::PointXYZ>::Ptr work_point_ring(new pcl::PointCloud<pcl::PointXYZ>);
     for (int j = 0; j <= 72; ++j) {
         double theta = 2.0 * M_PI * j / 72;
@@ -2082,7 +2083,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     ROS_INFO("Virtual Base Radius: %.3f m (R=%.3f + %.3f)", virtual_base_radius_m, radius_m,
              fitting_params_.virtual_base_to_surface_ * scale);
     ROS_INFO("Work Point Radius: %.3f m (R=%.3f + %.3f)", work_point_radius_m, radius_m,
-             fitting_params_.slice_distance_ * scale);
+             fitting_params_.virtual_base_to_surface_ * scale);
     ROS_INFO("=========================================");
 }
 
