@@ -163,7 +163,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 ti_msg.angle  = std::round((slice.angle_deg) * 1000.0) / 1000.0;
                 ti_msg.height = fitter_->fittingParams().height_;
 
-                ROS_WARN("Cylinder ID: %d,circle:[%.3f,%.3f,%.3f],=> Zspray_center:[%.3f,%.3f,%.3f], "
+                ROS_WARN("Cylinder ID: %d,circle:[%.3f,%.3f,%.3f],=> spray_center:[%.3f,%.3f,%.3f], "
                          " => work_point:[%.3f,%.3f,%.3f], "
                          "cylinder_axis:[%.3f,%.3f,%.3f], Radius: %.3f mm, Angle: %.3f deg, Height: %.3f mm\n",
                          ti_msg.id, ti_msg.circle_center[0], ti_msg.circle_center[1], ti_msg.circle_center[2],
