@@ -22,7 +22,7 @@ public:
         , tf_lidar2_base_(new FlexedArmTF()) {
 
         // 从参数服务器读取虚拟原点到圆柱表面的距离
-        nh.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 600.0);
+        nh.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 800.0);
         ROS_INFO("CylinderFittingROS: virtual_base_to_surface = %.2f mm", virtual_base_to_surface_);
 
         // 主控命令订阅
@@ -88,5 +88,5 @@ private:
     int    last_w0_         = -1;
 
     // 从 launch 文件读取的参数
-    double virtual_base_to_surface_{600.0}; // 虚拟原点到圆柱表面的距离 (mm)
+    double virtual_base_to_surface_{800.0}; // 虚拟原点到圆柱表面的距离 (mm)
 };
