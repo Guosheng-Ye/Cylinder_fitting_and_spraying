@@ -54,9 +54,13 @@ class CylinderInfo:
 class SliceInfo:
     """切片信息"""
     slice_id: int = 0
-    circle_center: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    spray_center: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    work_point: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    circle_center: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # LiDAR坐标系 (m)
+    spray_center: Tuple[float, float, float] = (0.0, 0.0, 0.0)   # LiDAR坐标系 (m)
+    work_point: Tuple[float, float, float] = (0.0, 0.0, 0.0)     # Base坐标系 (m)
+    work_point_lidar: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # LiDAR坐标系 (m)
+    # Base坐标系下的圆心和喷涂中心 (mm)
+    circle_center_base_mm: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    spray_center_base_mm: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     target_id: int = 0
     layer: int = 0
     skipped: bool = False
@@ -424,10 +428,10 @@ def parse_log_file(filepath: str) -> ParseResult:
                                        float(spray_coords[1])/1000, 
                                        float(spray_coords[2])/1000)
         if len(work_coords) >= 3:
-            # 存储LiDAR坐标系下的工作点 (m)
-            slice_info.work_point = (float(work_coords[0])/1000, 
-                                     float(work_coords[1])/1000, 
-                                     float(work_coords[2])/1000)
+            # 存储LiDAR坐标系下的工作点 (m) - 这是Source行中的work_point
+            slice_info.work_point_lidar = (float(work_coords[0])/1000, 
+                                            float(work_coords[1])/1000, 
+                                            float(work_coords[2])/1000)
         
         # 查找后续的Slice id行和状态
         start_pos = source_match.end()
@@ -452,6 +456,34 @@ def parse_log_file(filepath: str) -> ParseResult:
             target_match = re.search(r'Target ID:\s*(\d+)', following_text)
             if target_match:
                 slice_info.target_id = int(target_match.group(1))
+            
+            # 从 Cylinder ID 行中获取 Base 坐标系下的坐标
+            # 格式: Cylinder ID: 1,circle:[165.491,8066.396,8185.623],=> Zspray_center:[-92.929,7807.976,8185.623],  => work_point:[-0.517,7.384,8.186], ...
+            # circle 和 Zspray_center 单位是 mm，work_point 单位是 m
+            cylinder_line_match = re.search(
+                r'Cylinder ID:.*?circle:\[([-\d.,\s]+)\].*?Zspray_center:\[([-\d.,\s]+)\].*?work_point:\[([-\d.,\s]+)\]',
+                following_text
+            )
+            if cylinder_line_match:
+                # 解析 circle_center (Base坐标系, mm)
+                circle_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(1))
+                if len(circle_coords) >= 3:
+                    slice_info.circle_center_base_mm = (float(circle_coords[0]),
+                                                        float(circle_coords[1]),
+                                                        float(circle_coords[2]))
+                # 解析 spray_center (Base坐标系, mm)
+                spray_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(2))
+                if len(spray_coords) >= 3:
+                    slice_info.spray_center_base_mm = (float(spray_coords[0]),
+                                                       float(spray_coords[1]),
+                                                       float(spray_coords[2]))
+                # 解析 work_point (Base坐标系, m)
+                work_base_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(3))
+                if len(work_base_coords) >= 3:
+                    slice_info.work_point = (float(work_base_coords[0]), 
+                                             float(work_base_coords[1]), 
+                                             float(work_base_coords[2]))
+            
             slice_info.skipped = False
             valid_count += 1
         
@@ -587,12 +619,48 @@ def print_analysis_report(result: ParseResult):
     print("─" * 70)
     valid_slices = [s for s in result.slices if not s.skipped]
     if valid_slices:
-        print(f"  {'Target ID':<12} {'工作点坐标 (m)':<40}")
-        print(f"  {'-'*10:<12} {'-'*38:<40}")
+        print(f"  {'Target ID':<10} {'工作点坐标 (m)':<36} {'到喷涂中心距离':<16} {'到圆心距离':<16}")
+        print(f"  {'-'*8:<10} {'-'*34:<36} {'-'*14:<16} {'-'*14:<16}")
         for s in valid_slices:
-            print(f"  {s.target_id:<12} [{s.work_point[0]:.3f}, {s.work_point[1]:.3f}, {s.work_point[2]:.3f}]")
+            # 工作点坐标 (m -> mm)
+            wp_mm = (s.work_point[0] * 1000, s.work_point[1] * 1000, s.work_point[2] * 1000)
+            # 计算到喷涂中心的距离 (mm)
+            dist_to_spray = ((wp_mm[0] - s.spray_center_base_mm[0])**2 +
+                             (wp_mm[1] - s.spray_center_base_mm[1])**2 +
+                             (wp_mm[2] - s.spray_center_base_mm[2])**2) ** 0.5
+            # 计算到圆心的距离 (mm)
+            dist_to_circle = ((wp_mm[0] - s.circle_center_base_mm[0])**2 +
+                              (wp_mm[1] - s.circle_center_base_mm[1])**2 +
+                              (wp_mm[2] - s.circle_center_base_mm[2])**2) ** 0.5
+            print(f"  {s.target_id:<10} [{s.work_point[0]:.3f}, {s.work_point[1]:.3f}, {s.work_point[2]:.3f}]" +
+                  f"{'':4}{dist_to_spray:>10.2f} mm   {dist_to_circle:>10.2f} mm")
     else:
         print("  无有效工作点")
+    
+    # 7. TargetPose 与 TargetInfo 对比
+    print("\n" + "─" * 120)
+    print("7️⃣  TargetPose 与 TargetInfo 数据对比 (按 ID)")
+    print("─" * 120)
+    if valid_slices:
+        print(f"  {'ID':<4} │ {'TargetPose (x,y,z) [m]':<32} │ {'TargetInfo: circle_center (mm)':<36} │ {'spray_center (mm)':<32}")
+        print(f"  {'-'*3:<4} │ {'-'*30:<32} │ {'-'*34:<36} │ {'-'*30:<32}")
+        for s in valid_slices:
+            # TargetPose: work_point (m)
+            tp_str = f"[{s.work_point[0]:>8.3f}, {s.work_point[1]:>7.3f}, {s.work_point[2]:>7.3f}]"
+            # TargetInfo: circle_center (mm)
+            cc_str = f"[{s.circle_center_base_mm[0]:>8.2f}, {s.circle_center_base_mm[1]:>8.2f}, {s.circle_center_base_mm[2]:>8.2f}]"
+            # TargetInfo: spray_center (mm)
+            sc_str = f"[{s.spray_center_base_mm[0]:>8.2f}, {s.spray_center_base_mm[1]:>8.2f}, {s.spray_center_base_mm[2]:>8.2f}]"
+            print(f"  {s.target_id:<4} │ {tp_str:<32} │ {cc_str:<36} │ {sc_str:<32}")
+        
+        # 打印附加信息 (只打印一次，因为圆柱参数相同)
+        print("\n  TargetInfo 圆柱参数 (所有切片共用):")
+        print(f"    cylinder_axis: [0.000, 0.000, 1.000]")
+        print(f"    Radius: {result.cylinder.radius_m * 1000:.3f} mm")
+        print(f"    Angle: 90.000 deg")
+        print(f"    Height: {result.cylinder.height_m * 1000:.3f} mm")
+    else:
+        print("  无有效数据")
     
     print("\n" + "=" * 70)
 
@@ -915,19 +983,31 @@ def _visualize_single_result_cal_style(ax, result: ParseResult, cyl_color: str, 
                 arc_z.append(point[2])
             ax.plot(arc_x, arc_y, arc_z, 'lime', linewidth=3, alpha=0.8)
     
-    # ========== 12. 绘制有效工作点 ==========
+    # ========== 12. 绘制有效喷涂点和工作点 ==========
+    # spray_center: LiDAR 坐标系 (m) - 喷涂目标点(在圆柱表面)
+    # work_point_lidar: LiDAR 坐标系 (m) - 机械臂工作点(在圆柱和原点之间)
     valid_slices = [s for s in result.slices if not s.skipped]
     if valid_slices:
-        work_points = np.array([s.work_point for s in valid_slices]) * 1000  # 转为mm
-        ax.scatter(work_points[:, 0], work_points[:, 1], work_points[:, 2],
+        # 绘制喷涂点 (LiDAR坐标系, 黄色星形) - 在圆柱表面
+        spray_points = np.array([s.spray_center for s in valid_slices]) * 1000  # 转为mm
+        ax.scatter(spray_points[:, 0], spray_points[:, 1], spray_points[:, 2],
                    c='yellow', s=100, marker='*', edgecolors='black', linewidths=0.5,
+                   label=f'Spray Points ({len(valid_slices)})')
+        
+        # 绘制工作点 (LiDAR坐标系, 青色圆点) - 在圆柱和原点之间
+        work_points = np.array([s.work_point_lidar for s in valid_slices]) * 1000  # 转为mm
+        ax.scatter(work_points[:, 0], work_points[:, 1], work_points[:, 2],
+                   c='cyan', s=80, marker='o', edgecolors='black', linewidths=0.5,
                    label=f'Work Points ({len(valid_slices)})')
         
-        # 添加序号标签
+        # 添加序号标签 (在喷涂点上方)
         for i, s in enumerate(valid_slices):
-            wp = np.array(s.work_point) * 1000
-            ax.text(wp[0], wp[1], wp[2] + 100, f'{s.target_id}', fontsize=7, ha='center')
-    
+            sp = np.array(s.spray_center) * 1000
+            ax.text(sp[0], sp[1], sp[2] + 100, f'{s.target_id}', fontsize=7, ha='center', color='orange')
+            # 在工作点上方也标注ID
+            wp = np.array(s.work_point_lidar) * 1000
+            ax.text(wp[0], wp[1], wp[2] + 100, f'{s.target_id}', fontsize=7, ha='center', color='cyan')
+
     # ========== 13. 绘制圆柱轴线 ==========
     ax.plot([P_cyl[0], P_cyl_top[0]], [P_cyl[1], P_cyl_top[1]], [P_cyl[2], P_cyl_top[2]],
             'm-', linewidth=3, label=f'Cylinder Axis (H={cylinder_height:.0f}mm)')
@@ -1049,13 +1129,19 @@ def visualize_comparison(results: List[ParseResult]):
         ax.scatter(*P_cyl_geo, color=color, s=100, marker='D',
                    label=f'{result.filename} Center')
         
-        # 绘制工作点
+        # 绘制喷涂点和工作点
         valid_slices = [s for s in result.slices if not s.skipped]
         if valid_slices:
-            work_points = np.array([s.work_point for s in valid_slices]) * 1000  # mm
-            ax.scatter(work_points[:, 0], work_points[:, 1], work_points[:, 2], 
+            # 喷涂点 (LiDAR坐标系, 星形)
+            spray_points = np.array([s.spray_center for s in valid_slices]) * 1000  # mm
+            ax.scatter(spray_points[:, 0], spray_points[:, 1], spray_points[:, 2], 
                        c=color, s=80, marker='*', edgecolors='black', linewidths=0.5,
-                       label=f'{result.filename} Work Points ({len(valid_slices)})')
+                       label=f'{result.filename} Spray Points ({len(valid_slices)})')
+            # 工作点 (LiDAR坐标系, 圆点)
+            work_points = np.array([s.work_point_lidar for s in valid_slices]) * 1000  # mm
+            ax.scatter(work_points[:, 0], work_points[:, 1], work_points[:, 2], 
+                       c=color, s=60, marker='o', edgecolors='white', linewidths=0.5,
+                       alpha=0.7)
         
         # 绘制虚拟基座
         vb = np.array(result.virtual_base_position) * 1000  # mm
