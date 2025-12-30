@@ -19,23 +19,24 @@ class CylinderFittingROS {
 public:
     CylinderFittingROS(ros::NodeHandle &nh)
         : fitter_(new CylinderFitter(""))
-        , tf_lidar2_base_(new FlexedArmTF()) {
+        , tf_lidar2_base_(new FlexedArmTF())
+        , nh_(nh) {
 
         // 从参数服务器读取虚拟原点到圆柱表面的距离
         nh.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 800.0);
         ROS_INFO("CylinderFittingROS: virtual_base_to_surface = %.2f mm", virtual_base_to_surface_);
 
-        // 主控命令订阅
-        main_ctl_sub_ = nh.subscribe("/achieve_work_pose", 1, &CylinderFittingROS::mainCtlCallback, this);
-        ROS_INFO("CylinderFittingROS: Waiting for main control messages...");
+        // 主控命令订阅 (增大队列到10)
+        main_ctl_sub_ = nh.subscribe("/achieve_work_pose", 10, &CylinderFittingROS::mainCtlCallback, this);
+        ROS_INFO("CylinderFittingROS: Subscribed to /achieve_work_pose");
 
         // 雷达点云数据订阅 source:front_arm_lidar
-        lidar_data_sub_ = nh.subscribe("/rslidar_filtered", 1, &CylinderFittingROS::cloudCallback, this);
-        ROS_INFO("CylinderFittingROS: Waiting for filtered point clouds...");
+        lidar_data_sub_ = nh.subscribe("/rslidar_filtered", 10, &CylinderFittingROS::cloudCallback, this);
+        ROS_INFO("CylinderFittingROS: Subscribed to /rslidar_filtered");
 
         // 工艺参数订阅 process_param_bridge
-        process_param_sub_ = nh.subscribe("/process_param_bridge", 1, &CylinderFittingROS::processParamsCallback, this);
-        ROS_INFO("CylinderFittingROS: Waiting for process parameters...");
+        process_param_sub_ = nh.subscribe("/process_param_bridge", 10, &CylinderFittingROS::processParamsCallback, this);
+        ROS_INFO("CylinderFittingROS: Subscribed to /process_param_bridge");
 
         // 工艺参数发布 process_param
         process_param_pub_ = nh.advertise<pcl_process::ProcessParam>("/process_param", 1, true);
@@ -60,14 +61,15 @@ public:
 
 private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
-    void mainCtlCallback(const std_msgs::Bool &msg);
-    void processParamsCallback(const pcl_process::ProcessParam &msg);
+    void mainCtlCallback(const std_msgs::Bool::ConstPtr &msg);
+    void processParamsCallback(const pcl_process::ProcessParam::ConstPtr &msg);
 
 private:
+    ros::NodeHandle                 nh_;                // 节点句柄
     ros::Subscriber                 lidar_data_sub_;    // 雷达数据订阅
-    ros::Subscriber                 main_ctl_sub_;      //主控命令订阅
-    ros::Subscriber                 process_param_sub_; //工艺参数订阅
-    ros::Publisher                  process_param_pub_; //工艺参数发布
+    ros::Subscriber                 main_ctl_sub_;      // 主控命令订阅
+    ros::Subscriber                 process_param_sub_; // 工艺参数订阅
+    ros::Publisher                  process_param_pub_; // 工艺参数发布
     std::shared_ptr<CylinderFitter> fitter_;            // 圆柱拟合
     std::atomic<bool>               processing_{false};
 

@@ -229,22 +229,22 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
 // int16   arm_reach      # 机械臂臂展(mm)
 // int16   mode           # 1手动 2自动
 // int16   width          # 手动模式下直接透传即可；自动模式需要动态计算后传值
-void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam &msg) {
+void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam::ConstPtr &msg) {
     // ROS_WARN("=== processParamsCallback TRIGGERED ===");
     // ROS_INFO("Received ProcessParam: distance=%.2f, step_width=%.2f, height=%.2f, lap=%.2f, arm_reach=%d, mode=%d,
     // k=%d, w0=%d",
     //          msg.distance, msg.step_width, msg.height, msg.lap, msg.arm_reach, msg.mode, msg.k, msg.w0);
 
-    double distance    = msg.distance;
-    double step_width  = msg.step_width;
-    double step_height = msg.step_height;
-    double height      = msg.height;
-    double lap         = msg.lap;
+    double distance    = msg->distance;
+    double step_width  = msg->step_width;
+    double step_height = msg->step_height;
+    double height      = msg->height;
+    double lap         = msg->lap;
 
-    double arm_reach = msg.arm_reach;
-    int    mode      = msg.mode;
-    int    k         = msg.k;
-    int    w0        = msg.w0;
+    double arm_reach = msg->arm_reach;
+    int    mode      = msg->mode;
+    int    k         = msg->k;
+    int    w0        = msg->w0;
 
     bool changed = (distance != last_distance_) || (step_width != last_step_width_) || (height != last_height_) ||
                    (lap != last_lap_) || (arm_reach != last_arm_reach_) || (mode != last_mode_) || (k != last_k_);
@@ -269,17 +269,20 @@ void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam &
     }
 }
 
-void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool &msg) {
+void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
     bool prev = processing_.load(std::memory_order_acquire);
-    bool next = msg.data;
+    bool next = msg->data;
+    
+    // 状态未变化时不打印日志，避免刷屏
     if (prev == next) {
         return;
     }
+    
     if (next) {
-        ROS_INFO("Main control command received: Start cylinder fitting.");
+        ROS_WARN("=== Main control command: START cylinder fitting ===");
         processing_.store(true, std::memory_order_release);
     } else {
-        ROS_INFO("Main control command received: Stop cylinder fitting.");
+        ROS_WARN("=== Main control command: STOP cylinder fitting ===");
         processing_.store(false, std::memory_order_release);
     }
 }
