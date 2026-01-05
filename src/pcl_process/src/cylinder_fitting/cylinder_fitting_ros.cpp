@@ -136,8 +136,8 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 pose.x = work_point.x() / 1000.0; // mm -> m
                 pose.y = work_point.y() / 1000.0;
                 pose.z = work_z_base_mm_raised / 1000.0;
-                ROS_INFO(" Target ID: %d, Work Position in Base (m): [%.3f, %.3f, %.3f]", pose.id, pose.x, pose.y,
-                         pose.z);
+                // ROS_INFO(" Target ID: %d, Work Position in Base (m): [%.3f, %.3f, %.3f]", pose.id, pose.x, pose.y,
+                //  pose.z);
 
                 // 填充 TargetInfo (给喷涂目标信息的消息，单位：mm)
                 ti_msg.id = new_sequential_id;
@@ -163,12 +163,12 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 ti_msg.angle  = std::round((slice.angle_deg) * 1000.0) / 1000.0;
                 ti_msg.height = fitter_->fittingParams().height_;
 
-                ROS_WARN("Cylinder ID: %d,circle:[%.3f,%.3f,%.3f],=> spray_center:[%.3f,%.3f,%.3f], "
-                         " => work_point:[%.3f,%.3f,%.3f], "
-                         "cylinder_axis:[%.3f,%.3f,%.3f], Radius: %.3f mm, Angle: %.3f deg, Height: %.3f mm\n",
-                         ti_msg.id, ti_msg.circle_center[0], ti_msg.circle_center[1], ti_msg.circle_center[2],
-                         ti_msg.spray_center[0], ti_msg.spray_center[1], ti_msg.spray_center[2], pose.x, pose.y,
-                         pose.z, // <-- work_point (m)
+                ROS_WARN("Cylinder ID: %d, Work_point:[%.3f,%.3f,%.3f], Circle:[%.3f,%.3f,%.3f], => "
+                         "Spray_center:[%.3f,%.3f,%.3f], "
+                         "Cylinder_axis:[%.3f,%.3f,%.3f], Radius: %.3f mm, Angle: %.3f deg, Height: %.3f mm\n",
+                         ti_msg.id, pose.x, pose.y, pose.z, // <-- work_point (m)
+                         ti_msg.circle_center[0], ti_msg.circle_center[1], ti_msg.circle_center[2],
+                         ti_msg.spray_center[0], ti_msg.spray_center[1], ti_msg.spray_center[2],
                          ti_msg.cylinder_axis_direction[0], ti_msg.cylinder_axis_direction[1],
                          ti_msg.cylinder_axis_direction[2], ti_msg.radius, ti_msg.angle, ti_msg.height);
 
@@ -203,10 +203,10 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 process_param_msg.height, process_param_msg.lap, process_param_msg.arm_reach, process_param_msg.mode,
                 process_param_msg.k, process_param_msg.w0);
 
-            // 发布面积参数 - 使用有效切片数和有效总面积
+            // 发布面积参数
             pcl_process::SprayInfo spray_info_msg;
-            spray_info_msg.num  = published_id_counter;  // 使用有效切片数而非总切片数
-            spray_info_msg.area = out.single_slice_area_m2_ * published_id_counter;  // 有效总面积 = 单个切片面积 * 有效切片数
+            spray_info_msg.num  = published_id_counter; // 有效切片数
+            spray_info_msg.area = out.single_slice_area_m2_ * published_id_counter;
             spray_area_pub_.publish(spray_info_msg);
             ROS_INFO("Published SprayInfo: valid_slice_count=%d (total=%d), valid_total_area=%.4f m^2",
                      spray_info_msg.num, out.slice_count_, spray_info_msg.area);
@@ -272,12 +272,12 @@ void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam::
 void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
     bool prev = processing_.load(std::memory_order_acquire);
     bool next = msg->data;
-    
+
     // 状态未变化时不打印日志，避免刷屏
     if (prev == next) {
         return;
     }
-    
+
     if (next) {
         ROS_WARN("=== Main control command: START cylinder fitting ===");
         processing_.store(true, std::memory_order_release);
