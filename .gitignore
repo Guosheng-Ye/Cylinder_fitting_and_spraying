@@ -7,4 +7,9 @@ rslidar_sdk/
 log/
 res/
 res.zip
-src/pcl_process/src/cal_logs/__pycache__/statics.cpython-312.pyc
+src/pcl_process/src/cal_logs/
+__pycache__/statics.cpython-312.pyc
+src/pcl_process/src/cal_logs/12-*
+src/pcl_process/src/cal_logs/test_ims/
+backup/12-22/src.zip
+backup/12-24/src.zip
