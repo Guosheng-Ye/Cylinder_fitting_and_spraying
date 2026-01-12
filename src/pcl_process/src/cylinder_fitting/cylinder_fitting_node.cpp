@@ -1630,10 +1630,10 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
     // 绘制工作点轨迹圆（绿色，在底部绘制一个圆）
     {
         std::lock_guard<std::mutex> lock(viewer_mutex_);
-        int                         ring_samples   = 96;
+        int                         ring_samples = 96;
         // 使用 virtual_base_to_surface_ 与 sd.work_mm 计算一致
-        double                      work_radius_mm = radius_mm + fitting_params_.virtual_base_to_surface_;
-        double                      h_mm           = height_mm / 2.0; // 在中间高度绘制
+        double work_radius_mm = radius_mm + fitting_params_.virtual_base_to_surface_;
+        double h_mm           = height_mm / 2.0; // 在中间高度绘制
         for (int k = 0; k < ring_samples; ++k) {
             double          th0 = 2.0 * M_PI * k / ring_samples;
             double          th1 = 2.0 * M_PI * (k + 1) / ring_samples;
@@ -2059,7 +2059,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
 
     // 10.  工作点轨迹圆（绿色，以圆柱轴线在Z=0的投影为圆心）
     // 工作点半径 = 圆柱半径 + virtual_base_to_surface_（与 sd.work_mm 计算一致）
-    double                              work_point_radius_m = radius_m + fitting_params_.virtual_base_to_surface_ * scale;
+    double work_point_radius_m = radius_m + fitting_params_.virtual_base_to_surface_ * scale;
     pcl::PointCloud<pcl::PointXYZ>::Ptr work_point_ring(new pcl::PointCloud<pcl::PointXYZ>);
     for (int j = 0; j <= 72; ++j) {
         double theta = 2.0 * M_PI * j / 72;
@@ -2103,13 +2103,13 @@ void CylinderFitter::printResults() {
     }
 
     Eigen::Vector3f axis_norm = axis.normalized();
-    
+
     // 计算实际使用的轴向（与 sliceCylinder 逻辑一致）
     Eigen::Vector3f ideal_axis(0.0f, 0.0f, 1.0f);
     Eigen::Vector3f axis_used;
-    double cos_angle = std::abs(axis_norm.dot(ideal_axis));
-    double angle_diff_deg = std::acos(std::min(1.0, (double)cos_angle)) * 180.0 / M_PI;
-    
+    double          cos_angle      = std::abs(axis_norm.dot(ideal_axis));
+    double          angle_diff_deg = std::acos(std::min(1.0, (double)cos_angle)) * 180.0 / M_PI;
+
     if (fitting_params_.use_ideal_axis_ && angle_diff_deg < fitting_params_.axis_angle_threshold_deg_) {
         axis_used = ideal_axis;
     } else {
@@ -2148,11 +2148,10 @@ void CylinderFitter::printResults() {
              cylinder_model_.bottom_center.y() * 1000.0, cylinder_model_.bottom_center.z() * 1000.0);
     ROS_INFO("Axis (fitted):  [%.4f, %.4f, %.4f]", axis_norm.x(), axis_norm.y(), axis_norm.z());
     if (fitting_params_.use_ideal_axis_ && angle_diff_deg < fitting_params_.axis_angle_threshold_deg_) {
-        ROS_INFO("Axis (used):    [%.4f, %.4f, %.4f] (ideal, deviation %.2f deg)", 
-                 axis_used.x(), axis_used.y(), axis_used.z(), angle_diff_deg);
+        ROS_INFO("Axis (used):    [%.4f, %.4f, %.4f] (ideal, deviation %.2f deg)", axis_used.x(), axis_used.y(),
+                 axis_used.z(), angle_diff_deg);
     } else {
-        ROS_INFO("Axis (used):    [%.4f, %.4f, %.4f] (fitted)", 
-                 axis_used.x(), axis_used.y(), axis_used.z());
+        ROS_INFO("Axis (used):    [%.4f, %.4f, %.4f] (fitted)", axis_used.x(), axis_used.y(), axis_used.z());
     }
     ROS_INFO("Radius: %.2f mm", cylinder_model_.radius * 1000.0);
     ROS_INFO("Angle: %.2f deg", cylinder_model_.valid ? angle_deg : 0.0);
