@@ -141,16 +141,16 @@ target_link_libraries(
 )
 
 
-## -----------------------------------------------------------------------------
-## PCD 查看节点
-## -----------------------------------------------------------------------------
-# add_executable(pcd_viewer_node
-#     src/pcd_viewer/pcd_viewer.cpp
-# )
-# target_link_libraries(pcd_viewer_node
-#     ${catkin_LIBRARIES}
-#     ${PCL_LIBRARIES}
-# )
+# -----------------------------------------------------------------------------
+# PCD 查看节点
+# -----------------------------------------------------------------------------
+add_executable(pcd_viewer_node
+    src/pcd_viewer/pcd_viewer.cpp
+)
+target_link_libraries(pcd_viewer_node
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+)
 
 
 install(TARGETS
