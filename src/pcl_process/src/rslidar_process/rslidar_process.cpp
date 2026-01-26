@@ -6,7 +6,8 @@
 #include <sensor_msgs/PointCloud2.h>
 
 RSLidarFilterNode::RSLidarFilterNode(ros::NodeHandle &nh) {
-    sub_ = nh.subscribe("/rslidar_points", 10, &RSLidarFilterNode::cloudCallback, this);
+    // sub_ = nh.subscribe("/rslidar_points", 10, &RSLidarFilterNode::cloudCallback, this);
+    sub_ = nh.subscribe("/front_arm_lidar", 10, &RSLidarFilterNode::cloudCallback, this);
     pub_ = nh.advertise<sensor_msgs::PointCloud2>("/rslidar_filtered", 10);
     // 每1秒检查一次是否有数据输入
     watchdog_timer_ = nh.createTimer(ros::Duration(1.0), &RSLidarFilterNode::watchdogCallback, this);

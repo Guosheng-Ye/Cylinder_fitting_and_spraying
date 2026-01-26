@@ -36,7 +36,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
             pcl_process::TargetInfo                ti_msg;
 
             // Z轴工作高度约束
-            const double MIN_WORK_HEIGHT_MM = 2000.0; // Z 轴统一抬高的高度 (mm)
+            const double MIN_WORK_HEIGHT_MM = 0;//2000.0; // Z 轴统一抬高的高度 (mm)
             // const double SPRAY_OFFSET_MM    = 1150.0; // 喷涂工作点偏移距离 (mm)
 
             // 转换圆柱底部和顶部中心 (m -> mm) 到 Base 坐标系
