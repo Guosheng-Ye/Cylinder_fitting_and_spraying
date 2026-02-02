@@ -53,6 +53,7 @@ catkin_package(
     src/cylinder_fitting
     src/rslidar_process
     src/pcd_viewer
+    src/ibeam_fitting
     src/tests
     src/tf
     LIBRARIES
@@ -67,6 +68,7 @@ include_directories(
     ${PCL_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cylinder_fitting
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rslidar_process
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ibeam_fitting
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pcd_viewer
     ${CMAKE_CURRENT_SOURCE_DIR}/src/tf
 )
@@ -80,6 +82,15 @@ add_library(cylinder_fitting_node
     src/cylinder_fitting/cylinder_fitting_node.cpp
 )
 target_link_libraries(cylinder_fitting_node
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+)
+
+## 工字钢拟合
+add_library(ibeam_fitting_node
+    src/ibeam_fitting/ibeam_fitting_node.cpp
+)
+target_link_libraries(ibeam_fitting_node
     ${catkin_LIBRARIES}
     ${PCL_LIBRARIES}
 )
@@ -108,10 +119,10 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 ## 雷达数据过滤节点
-add_executable(rslidar_process_node
+add_executable(rslidar_process_node_ros
     src/rslidar_process/rslidar_process.cpp
 )
-target_link_libraries(rslidar_process_node
+target_link_libraries(rslidar_process_node_ros
     ${catkin_LIBRARIES}
     ${PCL_LIBRARIES}
 )
@@ -127,6 +138,19 @@ target_link_libraries(cylinder_fitting_node_ros
     ${catkin_LIBRARIES}
     ${PCL_LIBRARIES}
 )
+
+##
+## 工字钢拟合结点
+## 
+add_executable(ibeam_fitting_node_ros
+    src/ibeam_fitting/ibeam_fitting_ros.cpp
+)
+target_link_libraries(ibeam_fitting_node_ros
+    ibeam_fitting_node
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+)
+
 
 ##
 ## Tests 测试节点
@@ -155,8 +179,9 @@ target_link_libraries(pcd_viewer_node
 
 install(TARGETS
     ${PROJECT_NAME}
-    rslidar_process_node
+    rslidar_process_node_ros
     cylinder_fitting_node_ros
+    ibeam_fitting_node_ros
     test_achieve_work_pose_pub
     RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
     LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}

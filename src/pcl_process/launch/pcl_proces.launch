@@ -1,10 +1,13 @@
 <launch>
-  <!-- 雷达处理节点 (对应 rosrun pcl_process rslidar_process_node) -->
-  <node pkg="pcl_process" type="rslidar_process_node" name="rslidar_process_node" output="screen"/>
+  <!-- 雷达处理节点 (对应 rosrun pcl_process rslidar_process_node_ros) -->
+  <node pkg="pcl_process" type="rslidar_process_node_ros" name="rslidar_process_node" output="screen"/>
 
   <!-- 圆柱拟合节点 (对应 rosrun pcl_process cylinder_fitting_node_ros) -->
   <node pkg="pcl_process" type="cylinder_fitting_node_ros" name="cylinder_fitting_node" output="screen">
     <!-- 虚拟原点到圆柱表面的距离 (mm)，用于自动模式下计算最大覆盖角度 -->
     <param name="virtual_base_to_surface" type="double" value="800.0"/>
   </node>
+
+  <!-- 工字钢拟合节点 (对应 rosrun pcl_process ibeam_fitting_node_ros) -->
+  <node pkg="pcl_process" type="ibeam_fitting_node_ros" name="ibeam_fitting_node" output="screen"/>
 </launch>
