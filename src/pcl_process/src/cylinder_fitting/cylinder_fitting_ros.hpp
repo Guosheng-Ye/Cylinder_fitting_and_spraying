@@ -31,8 +31,8 @@ public:
         ROS_INFO("CylinderFittingROS: Subscribed to /achieve_work_pose");
 
         // 雷达点云数据订阅 source:front_arm_lidar
-        lidar_data_sub_ = nh.subscribe("/rslidar_filtered", 10, &CylinderFittingROS::cloudCallback, this);
-        ROS_INFO("CylinderFittingROS: Subscribed to /rslidar_filtered");
+        lidar_data_sub_ = nh.subscribe("/rslidar_filtered_cylinder", 10, &CylinderFittingROS::cloudCallback, this);
+        ROS_INFO("CylinderFittingROS: Subscribed to /rslidar_filtered_cylinder");
 
         // 工艺参数订阅 process_param_bridge
         process_param_sub_ = nh.subscribe("/process_param_bridge", 10, &CylinderFittingROS::processParamsCallback, this);
