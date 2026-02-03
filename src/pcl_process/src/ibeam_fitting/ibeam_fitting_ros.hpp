@@ -3,7 +3,6 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
-#include <visualization_msgs/Marker.h>
 #include <pcl_ros/point_cloud.h>
 #include "ibeam_fitting_node.hpp"
 
@@ -13,12 +12,14 @@ public:
     ~IBeamFittingROS();
 
 private:
+    // 回调函数
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& msg);
-    void publishMarker(const std::vector<double>& pose);
+    
+    // 从ROS参数加载检测参数
+    void loadParams();
 
     ros::NodeHandle nh_;
     ros::Subscriber sub_;
-    ros::Publisher marker_pub_;
     
     std::shared_ptr<IBeamFitter> fitter_;
 };
