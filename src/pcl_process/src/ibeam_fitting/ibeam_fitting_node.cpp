@@ -1034,9 +1034,14 @@ IBeamParams IBeamFitter::getParams() {
     return params_;
 }
 
-// ============================================================================
-// 可视化函数 - 参考 cylinder_fitting_node 的 visualizeResults
-// ============================================================================
+/// @brief 灰色：原始点云
+// 白色：ROI区域点云
+// 彩色点云：检测到的工字钢（不同工字钢用不同颜色）
+// 中心球体：工字钢中心位置
+// 箭头：工字钢主轴方向
+// OBB边界框：12条边组成的包围盒
+// 紫色连线：从原点到工字钢中心
+// 3D文本标签：显示ID、尺寸、线性度
 void IBeamFitter::visualizeResults() {
     if (results_.empty() && (!cloud_ || cloud_->empty())) {
         return;
