@@ -10,7 +10,7 @@ IBeamFittingROS::IBeamFittingROS(ros::NodeHandle& nh) : nh_(nh) {
 
     // 订阅过滤后的雷达数据
     std::string input_topic;
-    nh_.param<std::string>("input_topic", input_topic, "/rslidar_filtered");
+    nh_.param<std::string>("input_topic", input_topic, "/rslidar_filtered_ibeam");
     sub_ = nh_.subscribe(input_topic, 1, &IBeamFittingROS::cloudCallback, this);
     
     ROS_INFO("IBeamFittingROS initialized.");
