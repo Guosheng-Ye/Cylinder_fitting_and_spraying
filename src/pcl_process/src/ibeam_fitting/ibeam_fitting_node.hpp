@@ -6,6 +6,7 @@
 #include <map>
 #include <mutex>
 #include <pcl/common/centroid.h>
+#include <pcl/common/common.h>
 #include <pcl/common/pca.h>
 #include <pcl/features/moment_of_inertia_estimation.h>
 #include <pcl/filters/extract_indices.h>
@@ -93,12 +94,12 @@ struct IBeamDetectionParams {
     int    min_cluster_size  = 10;   // 最小聚类点数
 
     // 聚类合并参数(第一轮 - 严格)
-    double merge_max_gap_strict             = 0.5;
+    double merge_max_gap_strict             = 0.3;   // 降低：最大间隙0.3m
     double merge_max_height_diff_strict     = 0.10;
     double merge_min_axis_similarity_strict = 0.97;
 
     // 聚类合并参数(第二轮 - 宽松)
-    double merge_max_gap_loose             = 1.0;
+    double merge_max_gap_loose             = 0.5;    // 降低：最大间隙0.5m（原1.0m太大）
     double merge_max_height_diff_loose     = 0.15;
     double merge_min_axis_similarity_loose = 0.95;
 
