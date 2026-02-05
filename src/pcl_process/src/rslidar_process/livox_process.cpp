@@ -26,6 +26,11 @@ public:
         pnh.param<std::string>("input_topic", input_topic_, "/livox/lidar");
         pnh.param<std::string>("output_topic", output_topic_, "/livox/accumulated");
         pnh.param<double>("publish_rate", publish_rate_, 10.0);  // 发布频率 Hz
+        
+        // 角度过滤参数 (与 rslidar_process 保持一致)
+        pnh.param<bool>("enable_angle_filter", enable_angle_filter_, true);
+        pnh.param<double>("angle_filter_deg", angle_filter_deg_, 45.0);  // 前向±45度
+        pnh.param<std::string>("forward_axis", forward_axis_, "x");  // Livox 默认 X 为前向
 
         // 订阅与发布
         sub_ = nh.subscribe(input_topic_, 100, &LivoxAccumulatorNode::cloudCallback, this);
@@ -48,6 +53,9 @@ public:
         ROS_INFO("  Voxel filter: %s (size: %.3f m)", 
                  enable_voxel_filter_ ? "enabled" : "disabled", voxel_size_);
         ROS_INFO("  Publish rate: %.1f Hz", publish_rate_);
+        ROS_INFO("  Angle filter: %s (+/-%.0f deg, forward: %s)",
+                 enable_angle_filter_ ? "enabled" : "disabled", 
+                 angle_filter_deg_, forward_axis_.c_str());
         ROS_INFO("========================================");
     }
 
@@ -104,6 +112,42 @@ private:
         }
 
         size_t before_filter = accumulated->size();
+
+        // 角度过滤 (类似 rslidar_process 的前向扇形过滤)
+        if (enable_angle_filter_) {
+            pcl::PointCloud<pcl::PointXYZI>::Ptr angle_filtered(new pcl::PointCloud<pcl::PointXYZI>);
+            const double angle_limit = angle_filter_deg_ * M_PI / 180.0;
+            
+            for (const auto& p : accumulated->points) {
+                if (std::isnan(p.x) || std::isnan(p.y) || std::isnan(p.z)) continue;
+                
+                double forward, lateral;
+                // 根据配置的前向轴选择坐标
+                if (forward_axis_ == "x" || forward_axis_ == "X") {
+                    forward = p.x;  // Livox: X 为前向
+                    lateral = p.y;  // Y 为侧向
+                } else {
+                    forward = p.y;  // RSLidar: Y 为前向
+                    lateral = p.x;  // X 为侧向
+                }
+                
+                if (forward <= 0) continue;  // 后方点云不保留
+                
+                double angle = std::atan2(lateral, forward);
+                if (std::abs(angle) <= angle_limit) {
+                    angle_filtered->push_back(p);
+                }
+            }
+            
+            ROS_DEBUG_THROTTLE(5.0, "[Livox] Angle filter: %zu -> %zu points",
+                              accumulated->size(), angle_filtered->size());
+            accumulated = angle_filtered;
+            
+            if (accumulated->empty()) {
+                ROS_WARN_THROTTLE(5.0, "[Livox Accumulator] No points after angle filtering");
+                return;
+            }
+        }
 
         // 可选的体素滤波降采样
         if (enable_voxel_filter_ && voxel_size_ > 0) {
@@ -172,6 +216,11 @@ private:
     std::string input_topic_;
     std::string output_topic_;
     double publish_rate_;
+    
+    // 角度过滤参数
+    bool enable_angle_filter_;
+    double angle_filter_deg_;
+    std::string forward_axis_;
 
     // 状态
     ros::Time last_msg_time_;
