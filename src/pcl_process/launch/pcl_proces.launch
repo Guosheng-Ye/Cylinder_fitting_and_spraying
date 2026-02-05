@@ -8,6 +8,4 @@
     <param name="virtual_base_to_surface" type="double" value="800.0"/>
   </node>
 
-  <!-- 工字钢拟合节点 (对应 rosrun pcl_process ibeam_fitting_node_ros) -->
-  <node pkg="pcl_process" type="ibeam_fitting_node_ros" name="ibeam_fitting_node" output="screen"/>
 </launch>

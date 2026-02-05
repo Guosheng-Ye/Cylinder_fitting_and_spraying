@@ -1,0 +1,45 @@
+<launch>
+  <!-- 工字钢检测节点 (使用PCL Viewer本地可视化) -->
+  <node pkg="pcl_process" type="ibeam_fitting_node_ros" name="ibeam_fitting_node" output="screen">
+    <!-- 输入话题: 使用±45度过滤的点云 -->
+    <param name="input_topic" value="/rslidar_filtered_ibeam"/>
+    
+    <!-- ========== 空间过滤参数 ========== -->
+    <!-- 最大检测距离(米) -->
+    <param name="max_distance" value="6.0"/>
+    <!-- 最小检测距离(米) -->
+    <param name="min_distance" value="2.0"/>
+    <!-- 最小高度(米) -->
+    <param name="min_height" value="1.5"/>
+    
+    <!-- ========== 预处理参数 ========== -->
+    <!-- 体素降采样大小(米) -->
+    <param name="voxel_size" value="0.02"/>
+    <!-- 统计滤波邻居数 -->
+    <param name="sor_neighbors" value="20"/>
+    <!-- 统计滤波标准差比 -->
+    <param name="sor_std_ratio" value="1.5"/>
+    
+    <!-- ========== 墙面移除参数 ========== -->
+    <!-- RANSAC距离阈值 -->
+    <param name="wall_distance_threshold" value="0.08"/>
+    <!-- 最小墙面点数 -->
+    <param name="min_wall_points" value="500"/>
+    
+    <!-- ========== 聚类参数 ========== -->
+    <!-- DBSCAN聚类容差 -->
+    <param name="cluster_tolerance" value="0.18"/>
+    <!-- 最小聚类点数 -->
+    <param name="min_cluster_size" value="10"/>
+    
+    <!-- ========== 工字钢判断阈值 ========== -->
+    <!-- 最小线性度 -->
+    <param name="min_linearity" value="0.8"/>
+    <!-- 最小长度(米) -->
+    <param name="min_length" value="1.5"/>
+    <!-- 最小长宽比 -->
+    <param name="min_aspect_ratio" value="2.5"/>
+    <!-- 主轴Z分量最大值(水平性判断) -->
+    <param name="max_axis_z" value="0.2"/>
+  </node>
+</launch>

@@ -127,6 +127,15 @@ target_link_libraries(rslidar_process_node_ros
     ${PCL_LIBRARIES}
 )
 
+## Livox 点云累积节点
+add_executable(livox_accumulator_node
+    src/rslidar_process/livox_process.cpp
+)
+target_link_libraries(livox_accumulator_node
+    ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES}
+)
+
 ## -----------------------------------------------------------------------------
 ## 圆柱拟合 ROS 节点（
 ## -----------------------------------------------------------------------------
@@ -180,6 +189,7 @@ target_link_libraries(pcd_viewer_node
 install(TARGETS
     ${PROJECT_NAME}
     rslidar_process_node_ros
+    livox_accumulator_node
     cylinder_fitting_node_ros
     ibeam_fitting_node_ros
     test_achieve_work_pose_pub
