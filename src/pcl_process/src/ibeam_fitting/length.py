@@ -1,4 +1,18 @@
-def calculate_beam_spraying_limit(self, R_max, D_base, D_work, height, base_z_offset):
+# R_max=1500.00mm, 
+# D_base=1100.00mm, 
+# D_work=650.00mm, 
+# height=420.78mm, 
+# base_z_offset=460.00mm, 
+# R_eff=1125.00mm, 
+# D_target=450.00mm, 
+# h_top=-249.61mm, 
+# h_bottom=-670.39mm, 
+# h_max_dist=670.39mm, 
+# square_val=613705.37, 
+# l_half=783.39mm, 
+# total_length=1566.79mm
+import math
+def calculate_beam_spraying_limit(R_max, D_base, D_work, height, base_z_offset):
         """
         R_max: 机械臂最大半径 (mm)
         D_base: 底座中心到腹板表面的水平距离 (mm)1100
@@ -32,3 +46,16 @@ def calculate_beam_spraying_limit(self, R_max, D_base, D_work, height, base_z_of
         total_length = l_half * 2
 
         return total_length, "正常"
+    
+def main():
+    R_max = 1500.00
+    D_base = 1100.00
+    D_work = 650.00
+    height = 420.78
+    base_z_offset = 460.00
+
+    total_length, status = calculate_beam_spraying_limit(R_max, D_base, D_work, height, base_z_offset)
+    print(f"计算结果: {total_length:.2f}mm, 状态: {status}")    
+
+if __name__ == "__main__":
+    main()

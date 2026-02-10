@@ -1,0 +1,18 @@
+[ WARN] [1770704621.330049442]: [IBeamFitter::updateOutputs] IBeamOutputs (Detect of Beam: L*W*H: 3.93*1.01*0.42 m):
+[ WARN] [1770704621.330054386]:   - beam_height : 420.78 mm
+[ WARN] [1770704621.330057587]:   - beam_length_of_working : 1566.79 mm
+[ WARN] [1770704621.330063956]:   - wing_plate_width: 84.16 mm
+[ WARN] [1770704621.330068923]:   - surface_point: (-2.01, 4.59, 1.87) m
+[ WARN] [1770704621.330074002]:   - plane_coeffs: (-0.018, -1.000, 0.016, 4.528)
+[ WARN] [1770704621.330077500]:   - plane_rx: (0.999, -0.018, -0.035)
+
+========== IBeam Detection Results ==========
+Detected 1 I-beam(s)
+[ INFO] [1770704621.351494206]: [IBeamFitter::visualizeResults]
+IBeam #1: 
+Center=(-2.01, 4.59, 1.87)m, 
+Distance=5.35m, 
+Dimensions=3.93x0.17x0.42m (Source W=1.01m), 
+Linearity=0.98, 
+AspectRatio=3.88, 
+Points=358 (original: 358)
