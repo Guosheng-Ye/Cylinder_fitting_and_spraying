@@ -17,25 +17,29 @@
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <ros/ros.h>
 #include <string>
 #include <thread>
 #include <vector>
 
 struct IBeamInputs {
     double distance_tcp2surface; // distance 轨迹点与表面的距离，直接传T30数值
-    double arm_reach;            // arm_reach 机械臂最大工作半径（mm）
-    double length;               // length 工作区域长度
-    int    mode_theta;           // mode_theta 喷涂角度模式（1-手动，2-自动）
-    double theta;                // theta 喷涂角度（度，mode_theta=1时有效）
+    double arm_reach     = 1500; // arm_reach 机械臂最大工作半径（mm）
+    double length        = -1;   // length 工作区域长度
+    int    mode_theta    = 2;    // mode_theta 喷涂角度模式（1-手动，2-自动）
+    double theta         = -1;   // theta 喷涂角度（度，mode_theta=1时有效）
+    double d_base        = 1100; // 底座中心到腹板表面的水平距离 (mm)1100
+    double d_work        = 650;  // 喷枪物理长度 + 喷涂挂距 (mm)650
+    double base_z_offset = 460;  // 机械臂底座中心与腹板中心高度线的高度差 (mm)460
 };
 struct IBeamOutputs {
-    double          distance_tcp2surface;  // distance 轨迹点与表面的距离，直接传T30数值
-    double          beam_height;           // height 工作区域的总高度（mm）
-    double          beam_width_of_working; // length 工作区域的长度
-    double          wing_plate_width;      // wing_plate_width 翼板的宽度（mm）
-    Eigen::Vector3d surface_point;         // surface_point 工作区域中心点坐标(机械臂坐标系下）
-    Eigen::Vector4d plane_coeffs;          // plane_coeffs 平面方程系数
-    Eigen::Vector3d plane_rx;              // plane_rx 区域长度方向的向量单位
+    double          distance_tcp2surface;   // distance 轨迹点与表面的距离，直接传T30数值
+    double          beam_height;            // height 工作区域的总高度（mm）
+    double          beam_length_of_working; // length 工作区域的长度
+    double          wing_plate_width;       // wing_plate_width 翼板宽度的一半（mm）
+    Eigen::Vector3d surface_point;          // surface_point 工作区域中心点坐标(机械臂坐标系下）
+    Eigen::Vector4d plane_coeffs;           // plane_coeffs 平面方程系数
+    Eigen::Vector3d plane_rx;               // plane_rx 区域长度方向的向量单位
 };
 
 // 定义工字钢参数结构体
@@ -94,12 +98,12 @@ struct IBeamDetectionParams {
     int    min_cluster_size  = 10;   // 最小聚类点数
 
     // 聚类合并参数(第一轮 - 严格)
-    double merge_max_gap_strict             = 0.3;   // 降低：最大间隙0.3m
+    double merge_max_gap_strict             = 0.3; // 降低：最大间隙0.3m
     double merge_max_height_diff_strict     = 0.10;
     double merge_min_axis_similarity_strict = 0.97;
 
     // 聚类合并参数(第二轮 - 宽松)
-    double merge_max_gap_loose             = 0.5;    // 降低：最大间隙0.5m（原1.0m太大）
+    double merge_max_gap_loose             = 0.5; // 降低：最大间隙0.5m（原1.0m太大）
     double merge_max_height_diff_loose     = 0.15;
     double merge_min_axis_similarity_loose = 0.95;
 
@@ -164,6 +168,36 @@ public:
     // 可视化检测结果(使用PCL Visualizer)
     void visualizeResults();
 
+    // ========== 工作区域计算函数 ==========
+    /**
+     * @brief 计算机械臂在工字钢上的可喷涂长度
+     * @param R_max 机械臂最大半径 (mm)
+     * @param D_base 底座中心到腹板表面的水平距离 (mm)
+     * @param D_work 喷枪物理长度 + 喷涂挂距 (mm)
+     * @param height 工字钢腹板高度 (mm)，即 beam_height
+     * @param base_z_offset 机械臂底座中心与腹板中心高度线的高度差 (mm)
+     * @param[out] error_msg 错误信息(如有)
+     * @return 可喷涂的总长度 (mm)，如果计算失败返回 0
+     */
+    double calculateBeamSprayingLimit(double R_max, double D_base, double D_work, double height, double base_z_offset,
+                                      std::string &error_msg);
+
+    /**
+     * @brief 根据工字钢识别结果和输入参数更新输出结果
+     * @param inputs 输入参数
+     * @param beam_result 工字钢检测结果
+     * @param[out] outputs 输出结果
+     * @return 是否成功更新
+     */
+    bool updateOutputs(const IBeamInputs &inputs, const IBeamResult &beam_result, IBeamOutputs &outputs);
+
+    /**
+     * @brief 通过分析截面形状计算翼缘宽度
+     * @param beam_result 工字钢检测结果
+     * @return 翼缘宽度 (m)，如果计算失败返回 -1
+     */
+    double calculateFlangeWidth(const IBeamResult &beam_result);
+
     // ========== 兼容旧接口 ==========
     bool compute() { return detect(); }
 
@@ -192,7 +226,7 @@ private:
                                   const std::vector<int>                    &layer_indices);
 
     // ========== 聚类合并 ==========
-    // 合并可能属于同一工字钢的聚类 
+    // 合并可能属于同一工字钢的聚类
     std::vector<int> mergeIBeamClusters(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
                                         const std::vector<int> &labels, double max_gap, double max_height_diff,
                                         double min_axis_similarity);
