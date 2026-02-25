@@ -1,25 +1,4 @@
 #include "ibeam_fitting_ros.hpp"
-#include <pcl_conversions/pcl_conversions.h>
-
-IBeamFittingROS::IBeamFittingROS(ros::NodeHandle &nh)
-    : nh_(nh) {
-
-    fitter_ = std::make_shared<IBeamFitter>();
-
-    // 加载参数
-    loadParams();
-
-    // 订阅过滤后的雷达数据
-    std::string input_topic;
-    nh_.param<std::string>("input_topic", input_topic, "/rslidar_filtered_ibeam");
-    sub_ = nh_.subscribe(input_topic, 1, &IBeamFittingROS::cloudCallback, this);
-
-    ROS_INFO("IBeamFittingROS initialized.");
-    ROS_INFO("  Input topic: %s", input_topic.c_str());
-    ROS_INFO("  Visualization: PCL Viewer (no ROS topic publishing)");
-}
-
-IBeamFittingROS::~IBeamFittingROS() {}
 
 void IBeamFittingROS::loadParams() {
     // 加载检测参数
@@ -58,37 +37,218 @@ void IBeamFittingROS::loadParams() {
     ROS_INFO("  Min length: %.1f m", params.min_length);
 }
 
+/// @brief 工艺参数设置函数
+/// @param distance      轨迹点与表面的距离 (mm)
+/// @param step_height   工作区域单次喷幅 (mm)（透传）
+/// @param step_length   工作区域单次长度 (mm)（透传）
+/// @param lap           两次喷幅搭接比例（透传）（0~1）
+/// @param arm_reach     机械臂臂展 (mm)
+/// @param mode_length   1手动2自动
+/// @param length        工作区域长度 (mm)
+/// @param mode_theta    1手动2自动（透传）
+/// @param theta         手动模式下喷涂翼板时的角度（透传）
+void IBeamFittingROS::setOption(const float distance, const float step_height, const float step_length, const float lap,
+                                const float arm_reach, const int mode_length, const float length, const int mode_theta,
+                                const float theta) {
+
+    this->fitter_->setIBeamParams(IBeamInputs{
+        .distance_tcp2surface = distance,    // 轨迹点与表面的距离
+        .step_height          = step_height, // 工作区域单次喷幅（mm) 透传
+        .step_length          = step_length, // 工作区域单次长度（mm) 透传
+        .lap                  = lap,         // 两次喷幅搭接比例      透传
+        .arm_reach            = arm_reach,   // arm_reach 机械臂最大工作半径（mm）
+        .mode_length          = mode_length, // mode_length 工作区域长度模式（1-手动，2-自动
+        .length               = length,      // length 工作区域长度（mm，mode_length=1时有效
+        .mode_theta           = mode_theta,  // mode_theta 喷涂角度模式（1-手动，2-自动）
+        .theta                = theta,       // theta 手动模式下喷涂翼板时的角度（透传）
+    });
+    ROS_WARN(
+        "IBeam fitting parameters have been set distance=%.2f mm, step_height=%.2f mm, step_length=%.2f mm, lap=%.2f, "
+        "arm_reach=%.2f mm, "
+        "mode_length=%d, length=%.2f mm, mode_theta=%d, theta=%.2f degrees",
+        distance, step_height, step_length, lap, arm_reach, mode_length, length, mode_theta, theta);
+}
+
+/// @brief 主控命令订阅回调
+/// @param msg
+void IBeamFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
+    bool prev = processing_.load(std::memory_order_acquire);
+    bool next = msg->data;
+    if (prev == next) {
+        return;
+    }
+    if (next) {
+        ROS_WARN("=== Main control command: START I-beam fitting ===");
+        processing_.store(true, std::memory_order_release);
+    } else {
+        ROS_WARN("=== Main control command: STOP I-beam fitting ===");
+        processing_.store(false, std::memory_order_release);
+    }
+}
+
+/// @brief 工艺参数订阅回调
+/// @param msg IBeamProcessParam消息
+// float64     distance     # 轨迹点与表面的距离
+// float64     step_height  # 工作区域单次喷幅（透传）
+// float64     step_length  # 工作区域单次长度（透传）
+// float64     lap          # 两次喷幅搭接比例（透传）
+// int16       arm_reach    # 机械臂臂展
+// int16       mode_length  # 1手动2自动
+// float64     length       # 工作区域长度
+// int16       mode_theta    # 1手动2自动（透传）
+// float64     theta        # 手动模式下喷涂翼板时的角度（透传）
+void IBeamFittingROS::ibeamProcessParamCallback(const pcl_process::IBeamProcessParam::ConstPtr &msg) {
+
+    double distance    = msg->distance;
+    double step_height = msg->step_height;
+    double step_length = msg->step_length;
+    double lap         = msg->lap;
+    double arm_reach   = msg->arm_reach;
+    int    mode_length = msg->mode_length;
+    double length      = msg->length;
+    int    mode_theta  = msg->mode_theta;
+    double theta       = msg->theta;
+
+    bool changed = (distance != last_distance_) || (step_height != last_step_height_) ||
+                   (step_length != last_step_length_) || (lap != last_lap_) || (arm_reach != last_arm_reach_) ||
+                   (mode_length != last_mode_length_) || (length != last_length_) || (mode_theta != last_mode_theta_);
+    if (changed) {
+        ROS_WARN("Process parameters changed: distance=%.2f (was %.2f), step_height=%.2f (was %.2f), step_length=%.2f "
+                 "(was %.2f), lap=%.2f (was %.2f), arm_reach=%.2f (was %.2f), mode_length=%d (was %d), length=%.2f "
+                 "(was %.2f), mode_theta=%d (was %d), theta=%.2f (was %.2f)",
+                 distance, last_distance_, step_height, last_step_height_, step_length, last_step_length_, lap,
+                 last_lap_, arm_reach, last_arm_reach_, mode_length, last_mode_length_, length, last_length_,
+                 mode_theta, last_mode_theta_, theta, last_theta_);
+
+        last_distance_    = distance;
+        last_step_height_ = step_height;
+        last_step_length_ = step_length;
+        last_lap_         = lap;
+        last_arm_reach_   = arm_reach;
+        last_mode_length_ = mode_length;
+        last_length_      = length;
+        last_mode_theta_  = mode_theta;
+        last_theta_       = theta;
+
+        setOption(distance, step_height, step_length, lap, arm_reach, mode_length, length, mode_theta, theta);
+    } else {
+        ROS_DEBUG("Process parameters unchanged, skipping setOption call.");
+    }
+}
+
+void IBeamFittingROS::generateTargetPoses(const IBeamOutputs& outputs) {
+    std::vector<IBeamSliceData> slices = fitter_->getSliceResults();
+    if (slices.empty()) {
+        return;
+    }
+
+    pcl_process::TargetPoseList tpl_msg;
+    const IBeamInputs          &inputs = fitter_->getIBeamParams();
+    double                      d_base = inputs.d_base; // 底座中心到腹板表面的水平距离 (mm)
+
+    ROS_INFO("[IBeamFittingROS] Generating target poses for %zu slices (d_base=%.2f mm)", slices.size(), d_base);
+
+    for (const auto &slice : slices) {
+        // 1. 获取切片中心（视为表面点） - 雷达坐标系
+        Eigen::Vector3d center_lidar = slice.center_mm;
+
+        // 2. 计算基座作业点（目标点） - 雷达坐标系
+        // 目标点 = 表面点 + 法向量 * d_base
+        // slice.normal 指向机器人（即远离工字钢表面的方向），符合 d_base 的延伸方向
+        Eigen::Vector3d target_lidar = center_lidar + slice.normal.normalized() * d_base;
+
+        // 3. 坐标转换：雷达坐标系 -> 基座坐标系
+        Eigen::Vector3d target_base = tf_lidar2_base_->to_base_from_lidar(target_lidar);
+        Eigen::Vector3d center_base = tf_lidar2_base_->to_base_from_lidar(center_lidar);
+
+        // 4. 填充 TargetPose (单位: m)
+        pcl_process::TargetPose pose;
+        pose.id = slice.id;
+        pose.x  = target_base.x() / 1000.0;
+        pose.y  = target_base.y() / 1000.0;
+        pose.z  = target_base.z() / 1000.0;
+
+        tpl_msg.targets.push_back(pose);
+
+        // 5. 发布单切片信息 (IBeamTargetInfo)
+        pcl_process::IBeamTargetInfo ti_msg;
+        // ti_msg.id = slice.id; // IBeamTargetInfo has no id field
+        // 填充表面点 (基座坐标系)
+        ti_msg.surface_point = {center_base.x(), center_base.y(), center_base.z()};
+        // 填充法向量 (基座坐标系)
+        Eigen::Vector3d normal_base = (target_base - center_base).normalized();
+        ti_msg.plane_coeffs         = {normal_base.x(), normal_base.y(), normal_base.z()};
+
+        // 填充主轴方向 (基座坐标系)
+        // 向量变换: V_base = R * V_lidar = to_base(P+V) - to_base(P)
+        Eigen::Vector3d axis_lidar            = slice.main_axis;
+        Eigen::Vector3d center_plus_axis_base = tf_lidar2_base_->to_base_from_lidar(center_lidar + axis_lidar);
+        Eigen::Vector3d axis_base             = (center_plus_axis_base - center_base).normalized();
+        ti_msg.plane_rx                       = {axis_base.x(), axis_base.y(), axis_base.z()};
+
+        // 填充切片尺寸 (mm)
+        ti_msg.length           = slice.slice_width_mm;
+        ti_msg.height           = slice.slice_height_mm;
+        ti_msg.wing_plate_width = outputs.wing_plate_width;
+
+        // 发布喷涂目标点信息 /spray_target_pose
+        spray_target_pose_pub_.publish(ti_msg);
+        ROS_WARN("[IBeamFittingROS] Published target info for slice %d: surface_point=(%.2f, %.2f, %.2f) "
+                 "m,work_point=(%.2f, %.2f, %.2f) m,"
+                 "normal=(%.2f, %.2f, %.2f), "
+                 "main_axis=(%.2f, %.2f, %.2f), slice_width=%.2f mm, slice_height=%.2f mm",
+                 slice.id, center_base.x() / 1000.0, center_base.y() / 1000.0, center_base.z() / 1000.0, pose.x, pose.y,
+                 pose.z, normal_base.x(), normal_base.y(), normal_base.z(), axis_base.x(), axis_base.y(), axis_base.z(),
+                 slice.slice_width_mm, slice.slice_height_mm);
+    }
+
+    // 发布 /target_pose_list
+    target_pose_pub_.publish(tpl_msg);
+    ROS_WARN("[IBeamFittingROS] Published TargetPoseList with %zu targets ", tpl_msg.targets.size());
+}
+
 void IBeamFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*msg, *cloud);
 
-    if (cloud->empty()) {
-        ROS_WARN_THROTTLE(5.0, "Received empty point cloud");
-        return;
-    }
-
-    fitter_->setInputCloud(cloud);
-
-    if (fitter_->detect()) {
-        std::vector<IBeamResult> results = fitter_->getResults();
-        ROS_INFO("Detected %zu I-beams", results.size());
-
-        // 更新结果参数
-        IBeamInputs inputs;
-        inputs.arm_reach = 1500;
-        inputs.d_base    = 1100;
-        inputs.d_work    = 650;
-        inputs.base_z_offset = 460;
-
-        IBeamOutputs outputs;
-        if (!results.empty()) {
-            fitter_->updateOutputs(inputs, results[0], outputs);
+    try {
+        bool processing = processing_.load(std::memory_order_acquire);
+        if (!processing) {
+            ROS_DEBUG_THROTTLE(5.0, "I-beam fitting is currently paused. Ignoring incoming point cloud.");
+            return;
+        }
+        if (cloud->empty()) {
+            ROS_WARN_THROTTLE(5.0, "Received empty point cloud");
+            return;
         }
 
-        // 使用PCL Viewer可视化结果
-        fitter_->visualizeResults();
-    } else {
-        ROS_WARN_THROTTLE(5.0, "No I-beams detected in current frame");
+        fitter_->setInputCloud(cloud);
+
+        if (fitter_->detect()) {
+            std::vector<IBeamResult> results = fitter_->getResults();
+            ROS_WARN("[IBeamFittingROS::cloudCallback] Detected %zu I-beams", results.size());
+
+            // 使用已设置的工艺参数
+            const IBeamInputs &inputs = fitter_->ibeam_inputs_;
+
+            IBeamOutputs outputs;
+            if (!results.empty()) {
+                fitter_->updateOutputs(inputs, results[0], outputs);
+            }
+            // 作业切片 - 使用设置的切片参数
+            fitter_->sliceIBeam(results[0], outputs, inputs.step_height, inputs.step_length);
+
+            // 生成并发布基座作业点
+            generateTargetPoses(outputs);
+
+            // 可视化
+            fitter_->visualizeResults();
+        } else {
+            ROS_WARN_THROTTLE(5.0, "No I-beams detected in current frame");
+        }
+        ROS_WARN("[IBeamFittingROS::cloudCallback] Processing completed");
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << '\n';
     }
 }
 

@@ -23,23 +23,45 @@
 #include <vector>
 
 struct IBeamInputs {
-    double distance_tcp2surface; // distance 轨迹点与表面的距离，直接传T30数值
-    double arm_reach     = 1500; // arm_reach 机械臂最大工作半径（mm）
-    double length        = -1;   // length 工作区域长度
-    int    mode_theta    = 2;    // mode_theta 喷涂角度模式（1-手动，2-自动）
-    double theta         = -1;   // theta 喷涂角度（度，mode_theta=1时有效）
+    // 工艺参数
+    double distance_tcp2surface = 1100; // 轨迹点与表面的距离
+    double step_height;                 // 工作区域单次喷幅（mm) 透传
+    double step_length;                 // 工作区域单次长度（mm) 透传
+    double lap;                         // 两次喷幅搭接比例      透传
+    double arm_reach   = 1500;          // arm_reach 机械臂最大工作半径（mm）
+    int    mode_length = 2;             // mode_length 工作区域长度模式（1-手动，2-自动）
+    double length      = -1;            // length 工作区域长度（mm，mode_length=1时有效）
+    int    mode_theta  = 2;             // mode_theta 喷涂角度模式（1-手动，2-自动）
+    double theta       = -1;            // theta 手动模式下喷涂翼板时的角度（透传）
+
+    // 长度计算所需参数
     double d_base        = 1100; // 底座中心到腹板表面的水平距离 (mm)1100
     double d_work        = 650;  // 喷枪物理长度 + 喷涂挂距 (mm)650
     double base_z_offset = 460;  // 机械臂底座中心与腹板中心高度线的高度差 (mm)460
 };
+
+// 作业对象参数结构体
 struct IBeamOutputs {
-    double          distance_tcp2surface;   // distance 轨迹点与表面的距离，直接传T30数值
-    double          beam_height;            // height 工作区域的总高度（mm）
-    double          beam_length_of_working; // length 工作区域的长度
-    double          wing_plate_width;       // wing_plate_width 翼板宽度的一半（mm）
     Eigen::Vector3d surface_point;          // surface_point 工作区域中心点坐标(机械臂坐标系下）
     Eigen::Vector4d plane_coeffs;           // plane_coeffs 平面方程系数
     Eigen::Vector3d plane_rx;               // plane_rx 区域长度方向的向量单位
+    double          beam_height;            // height 工作区域的总高度（mm）
+    double          beam_length_of_working; // length 工作区域的总长度（mm）
+    double          wing_plate_width;       // wing_plate_width 翼板宽度的一半（mm）
+    double          distance_tcp2surface;   // distance 轨迹点与表面的距离，直接传T30数值
+};
+
+// 工字钢切片数据结构体
+struct IBeamSliceData {
+    int             id;              // 切片id
+    int             layer_index{0};  // 高度层索引 (沿主轴方向)
+    int             row_index{0};    // 行索引 (高度方向，对应beam_height)
+    Eigen::Vector3d center_mm;       // 切片中心坐标 (mm)
+    Eigen::Vector3d center_m;        // 切片中心坐标 (m)
+    double          slice_height_mm; // 切片高度 (mm)，来源于 beam_height
+    double          slice_width_mm;  // 切片宽度 (mm)，来源于 beam_length_of_working
+    Eigen::Vector3d normal;          // 切片法向量（指向机器人方向）
+    Eigen::Vector3d main_axis;       // 工字钢主轴方向
 };
 
 // 定义工字钢参数结构体
@@ -145,6 +167,10 @@ public:
     // 设置检测参数
     void setParams(const IBeamDetectionParams &params);
 
+    // 设置/获取工艺参数
+    void               setIBeamParams(const IBeamInputs &inputs) { ibeam_inputs_ = inputs; }
+    const IBeamInputs &getIBeamParams() const { return ibeam_inputs_; }
+
     // 获取当前参数
     IBeamDetectionParams getDetectionParams() const;
 
@@ -197,6 +223,29 @@ public:
      * @return 翼缘宽度 (m)，如果计算失败返回 -1
      */
     double calculateFlangeWidth(const IBeamResult &beam_result);
+
+    // ========== 切片函数 ==========
+    /**
+     * @brief 将工字钢工作区域切片为多块区域，便于机械臂工作
+     * @param beam_result 工字钢检测结果
+     * @param outputs 工字钢输出参数（包含beam_height和beam_length_of_working）
+     * @param slice_height_mm 切片高度 (mm)
+     * @param slice_width_mm 切片宽度 (mm)
+     * @note 两参数都非0时按传入值切片；都为0时使用beam_height作为切片高、beam_length_of_working作为切片宽
+     */
+    void sliceIBeam(const IBeamResult &beam_result, const IBeamOutputs &outputs, double slice_height_mm = 0,
+                    double slice_width_mm = 0);
+
+    /**
+     * @brief 获取切片结果
+     * @return 切片数据列表
+     */
+    std::vector<IBeamSliceData> getSliceResults() const { return slices_data_; }
+
+    /**
+     * @brief 清空切片数据
+     */
+    void clearSlices() { slices_data_.clear(); }
 
     // ========== 兼容旧接口 ==========
     bool compute() { return detect(); }
@@ -270,6 +319,9 @@ private:
     // ========== 可视化线程 ==========
     void viewerThread();
 
+public:
+    IBeamInputs    ibeam_inputs_{};     // 工艺参数输入
+
 private:
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_;          // 输入点云
     pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud_; // 预处理后点云
@@ -278,6 +330,9 @@ private:
     IBeamDetectionParams     detection_params_; // 检测参数
     IBeamParams              params_;           // 工字钢参数(兼容旧接口)
     std::vector<IBeamResult> results_;          // 检测结果
+
+    // 切片数据
+    std::vector<IBeamSliceData> slices_data_; // 所有切片数据
 
     // 高度层定义
     std::vector<HeightLayer> height_layers_;

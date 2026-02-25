@@ -236,6 +236,13 @@ bool IBeamFitter::detect() {
 
     // 8. 输出结果
     std::cout << "\n" << std::string(50, '=') << std::endl;
+    ROS_WARN("[IBeamFitter::detect] IBeam Input Parameters: \ndistance_tcp2surface=%.2f mm,\nstep_height=%.2f mm,\n"
+             "step_length=%.2f mm,\nlap=%.2f,\n"
+             "arm_reach=%.2f mm, \nmode_length=%d, \nlength=%.2f mm, \nmode_theta=%d, \ntheta=%.2f degrees",
+             ibeam_inputs_.distance_tcp2surface, ibeam_inputs_.step_height, ibeam_inputs_.step_length,
+             ibeam_inputs_.lap, ibeam_inputs_.arm_reach, ibeam_inputs_.mode_length, ibeam_inputs_.length,
+             ibeam_inputs_.mode_theta, ibeam_inputs_.theta);
+
     if (!results_.empty()) {
         ROS_ERROR("[IBeamFitter::detect] IBeamFitter detected %zu I-beams:", results_.size());
         for (const auto &beam : results_) {
@@ -1792,6 +1799,428 @@ IBeamParams IBeamFitter::getParams() {
     return params_;
 }
 
+/// @brief 可视化线程
+void IBeamFitter::viewerThread() {
+    while (running_) {
+        {
+            std::lock_guard<std::mutex> lock(viewer_mutex_);
+            viewer_->spinOnce(30);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
+/// @brief 计算机械臂在工字钢上的可喷涂长度
+/// @param R_max 机械臂最大半径 (mm)
+/// @param D_base 底座中心到腹板表面的水平距离 (mm)
+/// @param D_work 喷枪物理长度 + 喷涂挂距 (mm)
+/// @param height 工字钢腹板高度 (mm)，即 beam_height
+/// @param base_z_offset 机械臂底座中心与腹板中心高度线的高度差 (mm)
+/// @param error_msg 错误信息(如有)
+/// @return 可喷涂的总长度 (mm)，如果计算失败返回 0
+double IBeamFitter::calculateBeamSprayingLimit(double R_max, double D_base, double D_work, double height,
+                                               double base_z_offset, std::string &error_msg) {
+    error_msg.clear();
+    // 参数检查
+    if (this->ibeam_inputs_.mode_length == 2) { //自动工作区域长度模式
+        ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit] Mode: AUTO");
+        // 1. 姿态折减后的有效半径
+        double R_eff = R_max * 0.75;
+
+        // 2. 机械臂法兰中心距离底座中心的水平深度
+        double D_target = D_base - D_work;
+
+        // 3. 计算垂直方向的最极端偏距 (考虑高度差)
+        double h_top      = (height / 2.0) - base_z_offset;
+        double h_bottom   = -(height / 2.0) - base_z_offset;
+        double h_max_dist = std::max(std::abs(h_top), std::abs(h_bottom));
+
+        // 4. 几何可行性检查
+        if (std::abs(D_target) > R_eff) {
+            error_msg = "错误：安装距离 D_base (" + std::to_string(D_base) + ") 减去工作间距后超出机械臂半径";
+            return 0.0;
+        }
+
+        double square_val = R_eff * R_eff - D_target * D_target - h_max_dist * h_max_dist;
+
+        if (square_val < 0) {
+            error_msg = "错误：在当前高度偏差或安装距离下，机械臂无法够到腹板边缘角点";
+            return 0.0;
+        }
+
+        // 5. 计算结果
+        double l_half       = std::sqrt(square_val);
+        double total_length = l_half * 2.0;
+        // ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit]\nR_max=%.2fmm, \nD_base=%.2fmm, \nD_work=%.2fmm, "
+        //          "\nheight=%.2fmm, \nbase_z_offset=%.2fmm, \nR_eff=%.2fmm, \nD_target=%.2fmm, "
+        //          "\nh_top=%.2fmm, \nh_bottom=%.2fmm, \nh_max_dist=%.2fmm, \nsquare_val=%.2f, \nl_half=%.2fmm, "
+        //          "\ntotal_length=%.2fmm",
+        //          R_max, D_base, D_work, height, base_z_offset, R_eff, D_target, h_top, h_bottom, h_max_dist,
+        //          square_val, l_half, total_length);
+        ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit], TOTAL_LENGTH = %.2fmm", total_length);
+        return total_length;
+    } else { //手动工作区域长度模式
+        ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit] Mode: MANUAL");
+
+        double user_slice_length = ibeam_inputs_.length; // 用户指定的切片长度 (mm)
+
+        if (user_slice_length <= 0) {
+            error_msg = "错误：手动模式下 length 参数无效 (length=" + std::to_string(user_slice_length) + ")";
+            return 0.0;
+        }
+
+        if (results_.empty()) {
+            error_msg = "错误：手动模式下无工字钢检测结果，无法计算总长度";
+            return 0.0;
+        }
+
+        // 获取识别到的工字钢物理总长度 (m → mm)
+        double beam_total_length = results_[0].dimensions[0] * 1000.0;
+
+        if (beam_total_length <= 0) {
+            error_msg = "错误：工字钢检测长度无效 (beam_total=" + std::to_string(beam_total_length) + ")";
+            return 0.0;
+        }
+
+        // 向上取整计算切片数，保证 adjusted_slice_length <= user_slice_length（只缩小不增大）
+        int n_slices = static_cast<int>(std::ceil(beam_total_length / user_slice_length));
+        if (n_slices < 1) n_slices = 1;
+
+        // 均匀切分后的实际切片长度（<= user_slice_length）
+        double adjusted_slice_length = beam_total_length / static_cast<double>(n_slices);
+
+        ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit] Manual length mode: "
+                 "beam_total=%.2f mm, user_slice_length=%.2f mm, n_slices=%d, adjusted_slice_length=%.2f mm",
+                 beam_total_length, user_slice_length, n_slices, adjusted_slice_length);
+
+        // 返回总工作长度（= n_slices * adjusted_slice_length = beam_total_length）
+        return adjusted_slice_length;
+    }
+}
+
+/// @brief 通过分析截面形状计算翼缘宽度
+/// @param beam_result 工字钢检测结果
+/// @return 翼缘宽度 (m)，如果计算失败返回 -1
+double IBeamFitter::calculateFlangeWidth(const IBeamResult &beam_result) {
+    if (!beam_result.points || beam_result.points->empty()) {
+        return -1.0;
+    }
+
+    // 获取主轴方向
+    Eigen::Vector3d u = beam_result.main_axis.normalized();
+    if (u[0] < 0) u = -u;
+
+    // 构建局部坐标系
+    Eigen::Vector3d w(0, 0, 1);                  // 垂直向上 (截面高度方向)
+    Eigen::Vector3d v = w.cross(u).normalized(); // 水平方向 (翼缘方向)
+
+    // 计算点在 v 方向（翼缘方向）的投影
+    std::vector<double> v_projections;
+    for (const auto &pt : beam_result.points->points) {
+        Eigen::Vector3d p(pt.x - beam_result.center[0], pt.y - beam_result.center[1], pt.z - beam_result.center[2]);
+        v_projections.push_back(p.dot(v));
+    }
+
+    if (v_projections.empty()) {
+        return -1.0;
+    }
+
+    // 使用直方图分析找到翼缘的实际宽度
+    // 工字钢截面呈 H 形，大部分点集中在翼缘的两侧
+    double v_min   = *std::min_element(v_projections.begin(), v_projections.end());
+    double v_max   = *std::max_element(v_projections.begin(), v_projections.end());
+    double v_range = v_max - v_min;
+
+    // 将 v 方向分成多个区间，统计点分布
+    const int        num_bins = 50;
+    std::vector<int> histogram(num_bins, 0);
+    double           bin_width = v_range / num_bins;
+
+    for (double v_proj : v_projections) {
+        int bin = std::min(static_cast<int>((v_proj - v_min) / bin_width), num_bins - 1);
+        histogram[bin]++;
+    }
+
+    // 找到密度最高的区域（对应翼缘位置）
+    // 对于H型截面，应该有两个峰值（上下翼缘）
+    int max_count = *std::max_element(histogram.begin(), histogram.end());
+    int threshold = max_count / 4; // 阈值：最大值的 1/4
+
+    // 找到有效区间（点密度超过阈值的区间）
+    int first_valid = -1, last_valid = -1;
+    for (int i = 0; i < num_bins; ++i) {
+        if (histogram[i] > threshold) {
+            if (first_valid < 0) first_valid = i;
+            last_valid = i;
+        }
+    }
+
+    if (first_valid < 0 || last_valid < 0 || last_valid <= first_valid) {
+        return -1.0;
+    }
+
+    // 翼缘宽度 = 有效区间的范围
+    double flange_width = (last_valid - first_valid + 1) * bin_width;
+
+    // 合理性检查：翼缘宽度应该在截面高度的 0.2-0.8 倍之间
+    double section_height = beam_result.dimensions[2];
+    if (flange_width < section_height * 0.15 || flange_width > section_height * 1.5) {
+        // 使用截面高度的 0.4 倍作为默认值
+        return section_height * 0.4;
+    }
+
+    return flange_width;
+}
+
+/// @brief 根据工字钢识别结果和输入参数更新输出结果
+/// @param inputs 输入参数
+/// @param beam_result 工字钢检测结果
+/// @param outputs 输出结果
+/// @return 是否成功更新
+bool IBeamFitter::updateOutputs(const IBeamInputs &inputs, const IBeamResult &beam_result, IBeamOutputs &outputs) {
+    // 1. 直接从输入参数复制
+    outputs.distance_tcp2surface = inputs.distance_tcp2surface;
+
+    // 2. 从检测结果中获取工字钢尺寸
+    // beam_result.dimensions: (length, v_span, w_span) 单位是米
+    // v_span: 水平面内垂直于主轴的跨度（可能包含端部结构，值偏大）
+    // w_span: Z方向（垂直方向）的跨度，即截面高度
+    double v_span = beam_result.dimensions[1] * 1000.0; // mm 水平跨度（可能偏大）
+    double w_span = beam_result.dimensions[2] * 1000.0; // mm 截面高度
+
+    // 工字钢截面高度：使用 Z 方向（w_span），因为工字钢通常水平放置
+    outputs.beam_height = w_span;
+
+    // 翼缘宽度计算：优先使用截面形状分析
+    double flange_width = calculateFlangeWidth(beam_result);
+    if (flange_width > 0) {
+        // 截面分析成功
+        outputs.wing_plate_width = (flange_width * 1000.0) / 2.0; // 翼缘宽度的一半 (mm)
+        ROS_INFO("[IBeamFitter::updateOutputs] Section analysis: Flange Width %.2fmm (Half : %.2fmm)",
+                 flange_width * 1000.0, outputs.wing_plate_width);
+    } else {
+        // 截面分析失败，使用备选方案
+        double estimated_flange_width;
+        if (v_span < w_span * 1.2 && v_span > 0.1 * w_span) {
+            // v_span 在合理范围内，使用它作为翼缘宽度
+            estimated_flange_width = v_span;
+        } else {
+            // v_span 不合理，使用截面高度的 0.4 倍作为估算
+            estimated_flange_width = w_span * 0.4;
+            ROS_WARN("[IBeamFitter::updateOutputs] v_span(%.2fmm) Error, using estimated flange width %.2fmm", v_span,
+                     estimated_flange_width);
+        }
+        outputs.wing_plate_width = estimated_flange_width / 2.0; // 翼缘宽度的一半 (mm)
+    }
+
+    // 3. 计算工作区域长度
+    std::string error_msg;
+    double      working_length =
+        calculateBeamSprayingLimit(inputs.arm_reach,    // R_max: 机械臂最大工作半径
+                                   inputs.d_base,       // D_base: 底座中心到腹板表面的水平距离
+                                   inputs.d_work,       // D_work: 喷枪物理长度 + 喷涂挂距
+                                   outputs.beam_height, // height: 工字钢腹板高度(使用识别出的 beam_height)
+                                   inputs.base_z_offset, // base_z_offset: 机械臂底座中心与腹板中心高度线的高度差
+                                   error_msg);
+    // 更新工字钢工作区域长度
+    outputs.beam_length_of_working = working_length;
+    ROS_INFO("[IBeamFitter::updateOutputs] Calculated working length: %.2fmm (Error: %s)", working_length,
+             error_msg.empty() ? "None" : error_msg.c_str());
+
+    // 4. 设置工作区域中心点坐标(机械臂坐标系下)
+    outputs.surface_point = beam_result.center;
+
+    // 5. 计算平面方程系数
+    // 假设腹板平面的法向量垂直于主轴方向，朝向机器人
+    Eigen::Vector3d main_axis = beam_result.main_axis;
+
+    // 构建一个垂直于主轴的平面
+    // 平面法向量：从工字钢中心指向原点的方向(在XY平面上的投影)
+    Eigen::Vector3d to_origin = -beam_result.center;
+    to_origin[2]              = 0; // 投影到XY平面
+    double norm               = to_origin.norm();
+    if (norm > 1e-6) {
+        to_origin.normalize();
+    } else {
+        // 如果中心点在原点附近，使用默认方向
+        to_origin = Eigen::Vector3d(1.0, 0.0, 0.0);
+    }
+
+    // 确保法向量垂直于主轴
+    Eigen::Vector3d plane_normal = to_origin - to_origin.dot(main_axis) * main_axis;
+    norm                         = plane_normal.norm();
+    if (norm > 1e-6) {
+        plane_normal.normalize();
+    } else {
+        // 退化情况：使用另一种方式计算
+        plane_normal = main_axis.cross(Eigen::Vector3d(0, 0, 1));
+        norm         = plane_normal.norm();
+        if (norm > 1e-6) {
+            plane_normal.normalize();
+        } else {
+            plane_normal = Eigen::Vector3d(1.0, 0.0, 0.0);
+        }
+    }
+
+    // 平面方程: ax + by + cz + d = 0
+    // d = -(a*x0 + b*y0 + c*z0)
+    double d             = -plane_normal.dot(beam_result.center);
+    outputs.plane_coeffs = Eigen::Vector4d(plane_normal[0], plane_normal[1], plane_normal[2], d);
+
+    // 6. 设置区域长度方向的单位向量(主轴方向)
+    outputs.plane_rx = main_axis.normalized();
+
+    ROS_WARN("[IBeamFitter::updateOutputs] IBeamOutputs (Detect of Beam: L*W*H: %.2f*%.2f*%.2f m):",
+             beam_result.dimensions[0], beam_result.dimensions[1], beam_result.dimensions[2]);
+    ROS_WARN("  - beam_height : %.2f mm", outputs.beam_height);
+    ROS_WARN("  - beam_length_of_working : %.2f mm", outputs.beam_length_of_working);
+    ROS_WARN("  - wing_plate_width: %.2f mm", outputs.wing_plate_width);
+    ROS_WARN("  - surface_point: (%.2f, %.2f, %.2f) m", outputs.surface_point[0], outputs.surface_point[1],
+             outputs.surface_point[2]);
+    ROS_WARN("  - plane_coeffs: (%.3f, %.3f, %.3f, %.3f)", outputs.plane_coeffs[0], outputs.plane_coeffs[1],
+             outputs.plane_coeffs[2], outputs.plane_coeffs[3]);
+    ROS_WARN("  - plane_rx: (%.3f, %.3f, %.3f)", outputs.plane_rx[0], outputs.plane_rx[1], outputs.plane_rx[2]);
+
+    return true;
+}
+
+/// @brief 将工字钢工作区域切片为多块区域，便于机械臂工作
+/// @param beam_result 工字钢检测结果
+/// @param outputs 工字钢输出参数（包含beam_height和beam_length_of_working）
+/// @param slice_height_mm 切片高度 (mm)，非0时生效
+/// @param slice_width_mm 切片宽度 (mm)，非0时生效
+/// @note 两参数都非0时按传入值切片；都为0时使用beam_height作为切片高、beam_length_of_working作为切片宽
+void IBeamFitter::sliceIBeam(const IBeamResult &beam_result, const IBeamOutputs &outputs, double slice_height_mm,
+                             double slice_width_mm) {
+    slices_data_.clear();
+
+    // 获取工字钢参数
+    double beam_height_mm       = outputs.beam_height;                // 工字钢截面高度 (mm)
+    double beam_total_length_mm = beam_result.dimensions[0] * 1000.0; // 工字钢实际物理总长度 (mm)
+
+    // 参数校验
+    if (beam_height_mm <= 0 || beam_total_length_mm <= 0) {
+        ROS_WARN("[IBeamFitter::sliceIBeam] Invalid beam dimensions: height=%.2f mm, total_length=%.2f mm",
+                 beam_height_mm, beam_total_length_mm);
+        return;
+    }
+
+    // 确定切片尺寸
+    if (slice_height_mm != 0 && slice_width_mm != 0) {
+        // 两参数都非0：按传入值切片
+        ROS_INFO("[IBeamFitter::sliceIBeam] Using user-specified slice size: %.2f x %.2f mm", slice_height_mm,
+                 slice_width_mm);
+    } else {
+        // 都为0（或任一为0）：使用默认值
+        slice_height_mm = beam_height_mm;                 // 工字钢截面高度作为切片高
+        slice_width_mm  = outputs.beam_length_of_working; // 计算的工作长度作为切片宽
+        ROS_INFO("[IBeamFitter::sliceIBeam] Using default slice size: height=beam_height(%.2f mm), "
+                 "width=beam_length_of_working(%.2f mm)",
+                 slice_height_mm, slice_width_mm);
+    }
+
+    if (slice_height_mm <= 0 || slice_width_mm <= 0) {
+        ROS_WARN("[IBeamFitter::sliceIBeam] Invalid slice dimensions: slice_height=%.2f mm, slice_width=%.2f mm",
+                 slice_height_mm, slice_width_mm);
+        return;
+    }
+
+    ROS_INFO("[IBeamFitter::sliceIBeam] Starting I-beam slicing:");
+    ROS_INFO("  - Beam height: %.2f mm, Total length: %.2f mm", beam_height_mm, beam_total_length_mm);
+    ROS_INFO("  - Slice height: %.2f mm, Slice width: %.2f mm", slice_height_mm, slice_width_mm);
+
+    // 获取工字钢几何信息
+    Eigen::Vector3d center    = beam_result.center;                 // 工字钢中心 (m)
+    Eigen::Vector3d main_axis = beam_result.main_axis.normalized(); // 主轴方向
+
+    // 确保主轴方向一致性（X分量为正）
+    if (main_axis[0] < 0) {
+        main_axis = -main_axis;
+    }
+
+    // 构建局部坐标系
+    // u: 主轴方向（沿工字钢长度方向）
+    // w: 垂直向上（Z方向，沿截面高度方向）
+    // v: 水平方向（垂直于主轴和Z轴，指向机器人方向）
+    Eigen::Vector3d u = main_axis;
+    Eigen::Vector3d w(0, 0, 1); // 垂直向上
+    Eigen::Vector3d v = w.cross(u);
+    if (v.norm() < 1e-6) {
+        v = Eigen::Vector3d(0, 1, 0); // 退化情况
+    }
+    v.normalize();
+
+    // 计算法向量（工字钢腹板平面的几何法向量）
+    // v 是垂直于主轴 u 和竖直轴 w 的向量，即腹板法向量
+    Eigen::Vector3d normal = v;
+
+    // 确保法向量指向原点/机器人一侧
+    // 检查 normal 与 (-center) 的点积，如果小于0说明背离原点，需要翻转
+    Eigen::Vector3d to_origin = -center;
+    to_origin[2]              = 0; // 仅在水平面上判断方向
+    if (normal.dot(to_origin) < 0) {
+        normal = -normal;
+    }
+
+    // 计算切片数量
+    int num_width_slices  = std::max(1, static_cast<int>(std::ceil(beam_total_length_mm / slice_width_mm)));
+    int num_height_slices = std::max(1, static_cast<int>(std::ceil(beam_height_mm / slice_height_mm)));
+
+    // 实际每个切片的尺寸（均匀分布）
+    double actual_slice_width_mm  = beam_total_length_mm / num_width_slices;
+    double actual_slice_height_mm = beam_height_mm / num_height_slices;
+
+    ROS_INFO("  - Number of slices: %d (width) x %d (height) = %d total", num_width_slices, num_height_slices,
+             num_width_slices * num_height_slices);
+    ROS_INFO("  - Actual slice size: %.2f x %.2f mm", actual_slice_width_mm, actual_slice_height_mm);
+
+    // 计算工作区域的起始位置（沿主轴方向从中心偏移）
+    double half_total_length_m = (beam_total_length_mm / 2.0) / 1000.0; // 转换为米
+    double half_beam_height_m  = (beam_height_mm / 2.0) / 1000.0;       // 转换为米
+
+    int slice_id = 0;
+
+    // 采用S型扫描顺序：从高到低（便于喷涂时重力影响），奇偶行切换方向
+    for (int h_idx = num_height_slices - 1; h_idx >= 0; --h_idx) {
+        // 高度方向的偏移（相对于中心）
+        double h_offset_m = -half_beam_height_m + (h_idx + 0.5) * (actual_slice_height_mm / 1000.0);
+
+        for (int w_iter = 0; w_iter < num_width_slices; ++w_iter) {
+            // S型顺序：偶数行正向，奇数行反向
+            int w_idx = ((num_height_slices - 1 - h_idx) % 2 == 0) ? w_iter : (num_width_slices - 1 - w_iter);
+
+            // 沿主轴方向的偏移（相对于中心）
+            double u_offset_m = -half_total_length_m + (w_idx + 0.5) * (actual_slice_width_mm / 1000.0);
+
+            // 计算切片中心坐标 (m)
+            Eigen::Vector3d slice_center_m = center + u_offset_m * u + h_offset_m * w;
+
+            // 填充切片数据
+            IBeamSliceData slice;
+            slice.id              = slice_id++;
+            slice.layer_index     = w_idx;                         // 沿主轴方向的索引
+            slice.row_index       = num_height_slices - 1 - h_idx; // 从上到下的行索引
+            slice.center_m        = slice_center_m;
+            slice.center_mm       = slice_center_m * 1000.0; // 转换为mm
+            slice.slice_height_mm = actual_slice_height_mm;
+            slice.slice_width_mm  = actual_slice_width_mm;
+            slice.normal          = normal;
+            slice.main_axis       = main_axis;
+
+            slices_data_.push_back(slice);
+        }
+    }
+
+    ROS_INFO("[IBeamFitter::sliceIBeam] Generated %zu slices", slices_data_.size());
+
+    // 打印切片信息
+    for (const auto &slice : slices_data_) {
+        ROS_INFO("  Slice #%d: center=(%.3f, %.3f, %.3f)m, size=%.1fx%.1fmm, layer=%d, row=%d", slice.id,
+                 slice.center_m[0], slice.center_m[1], slice.center_m[2], slice.slice_width_mm, slice.slice_height_mm,
+                 slice.layer_index, slice.row_index);
+    }
+}
+
 /// @brief 灰色：原始点云
 // 白色：ROI区域点云
 // 彩色点云：检测到的工字钢（不同工字钢用不同颜色）
@@ -1924,6 +2353,47 @@ void IBeamFitter::visualizeResults() {
         snprintf(label, sizeof(label), "IBeam #%d\n%.2fx%.2fx%.2fm\nL=%.2f", beam.id, beam.dimensions[0], actual_width,
                  beam.dimensions[2], beam.linearity);
         viewer_->addText3D(label, text_pos, 0.08, 1.0, 1.0, 1.0, id_prefix + "_label");
+
+        //可视化切片框（绿色边框 + 蓝色中心点）
+        // 切片坐标系: main_axis(u)方向为slice_width, Z(w)方向为slice_height
+        for (const auto &slice : slices_data_) {
+            // 通过main_axis匹配切片与当前工字钢
+            double axis_sim = std::abs(slice.main_axis.normalized().dot(beam.main_axis.normalized()));
+            if (axis_sim < 0.95) continue; // 不属于此工字钢
+
+            Eigen::Vector3d sc = slice.center_m;
+            double half_sw = slice.slice_width_mm / 2000.0;   // 宽度半值(m)，沿main_axis方向
+            double half_sh = slice.slice_height_mm / 2000.0;  // 高度半值(m)，沿Z方向
+
+            Eigen::Vector3d u_dir = slice.main_axis.normalized(); // 沿工字钢长度方向
+            Eigen::Vector3d w_dir(0, 0, 1);                       // 垂直向上
+
+            // 切片矩形的4个顶点
+            Eigen::Vector3d c0 = sc - half_sw * u_dir - half_sh * w_dir;
+            Eigen::Vector3d c1 = sc + half_sw * u_dir - half_sh * w_dir;
+            Eigen::Vector3d c2 = sc + half_sw * u_dir + half_sh * w_dir;
+            Eigen::Vector3d c3 = sc - half_sw * u_dir + half_sh * w_dir;
+
+            std::string sid = id_prefix + "_slice_" + std::to_string(slice.id);
+
+            // 绿色边框 (4条边)
+            pcl::PointXYZ p0(c0[0], c0[1], c0[2]), p1(c1[0], c1[1], c1[2]);
+            pcl::PointXYZ p2(c2[0], c2[1], c2[2]), p3(c3[0], c3[1], c3[2]);
+            viewer_->addLine(p0, p1, 0.0, 1.0, 0.0, sid + "_e0");
+            viewer_->addLine(p1, p2, 0.0, 1.0, 0.0, sid + "_e1");
+            viewer_->addLine(p2, p3, 0.0, 1.0, 0.0, sid + "_e2");
+            viewer_->addLine(p3, p0, 0.0, 1.0, 0.0, sid + "_e3");
+
+            // 蓝色中心点
+            pcl::PointXYZ center_p(sc[0], sc[1], sc[2]);
+            viewer_->addSphere(center_p, 0.02, 0.0, 0.0, 1.0, sid + "_center");
+
+            // 切片ID文本标签（小号白色）
+            pcl::PointXYZ label_pos(sc[0], sc[1], sc[2] + half_sh + 0.03);
+            char          slice_label[32];
+            snprintf(slice_label, sizeof(slice_label), "#%d", slice.id);
+            viewer_->addText3D(slice_label, label_pos, 0.04, 1.0, 1.0, 1.0, sid + "_label");
+        }
     }
 
     // 5. 打印检测结果到终端
@@ -1945,253 +2415,4 @@ void IBeamFitter::visualizeResults() {
                  beam.dimensions[2], beam.dimensions[1], beam.linearity, beam.aspect_ratio, beam.point_count,
                  beam.original_point_count);
     }
-}
-
-/// @brief 可视化线程
-void IBeamFitter::viewerThread() {
-    while (running_) {
-        {
-            std::lock_guard<std::mutex> lock(viewer_mutex_);
-            viewer_->spinOnce(30);
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-}
-
-/// @brief 计算机械臂在工字钢上的可喷涂长度
-/// @param R_max 机械臂最大半径 (mm)
-/// @param D_base 底座中心到腹板表面的水平距离 (mm)
-/// @param D_work 喷枪物理长度 + 喷涂挂距 (mm)
-/// @param height 工字钢腹板高度 (mm)，即 beam_height
-/// @param base_z_offset 机械臂底座中心与腹板中心高度线的高度差 (mm)
-/// @param error_msg 错误信息(如有)
-/// @return 可喷涂的总长度 (mm)，如果计算失败返回 0
-double IBeamFitter::calculateBeamSprayingLimit(double R_max, double D_base, double D_work, double height,
-                                               double base_z_offset, std::string &error_msg) {
-    error_msg.clear();
-
-    // 1. 姿态折减后的有效半径
-    double R_eff = R_max * 0.75;
-
-    // 2. 机械臂法兰中心距离底座中心的水平深度
-    double D_target = D_base - D_work;
-
-    // 3. 计算垂直方向的最极端偏距 (考虑高度差)
-    double h_top      = (height / 2.0) - base_z_offset;
-    double h_bottom   = -(height / 2.0) - base_z_offset;
-    double h_max_dist = std::max(std::abs(h_top), std::abs(h_bottom));
-
-    // 4. 几何可行性检查
-    if (std::abs(D_target) > R_eff) {
-        error_msg = "错误：安装距离 D_base (" + std::to_string(D_base) + ") 减去工作间距后超出机械臂半径";
-        return 0.0;
-    }
-
-    double square_val = R_eff * R_eff - D_target * D_target - h_max_dist * h_max_dist;
-
-    if (square_val < 0) {
-        error_msg = "错误：在当前高度偏差或安装距离下，机械臂无法够到腹板边缘角点";
-        return 0.0;
-    }
-
-    // 5. 计算结果
-    double l_half       = std::sqrt(square_val);
-    double total_length = l_half * 2.0;
-    // ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit]\nR_max=%.2fmm, \nD_base=%.2fmm, \nD_work=%.2fmm, "
-    //          "\nheight=%.2fmm, \nbase_z_offset=%.2fmm, \nR_eff=%.2fmm, \nD_target=%.2fmm, "
-    //          "\nh_top=%.2fmm, \nh_bottom=%.2fmm, \nh_max_dist=%.2fmm, \nsquare_val=%.2f, \nl_half=%.2fmm, "
-    //          "\ntotal_length=%.2fmm",
-    //          R_max, D_base, D_work, height, base_z_offset, R_eff, D_target, h_top, h_bottom, h_max_dist, square_val,
-    //          l_half, total_length);
-    ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit], TOTAL_LENGTH = %.2fmm", total_length);
-    return total_length;
-}
-
-/// @brief 通过分析截面形状计算翼缘宽度
-/// @param beam_result 工字钢检测结果
-/// @return 翼缘宽度 (m)，如果计算失败返回 -1
-double IBeamFitter::calculateFlangeWidth(const IBeamResult &beam_result) {
-    if (!beam_result.points || beam_result.points->empty()) {
-        return -1.0;
-    }
-
-    // 获取主轴方向
-    Eigen::Vector3d u = beam_result.main_axis.normalized();
-    if (u[0] < 0) u = -u;
-
-    // 构建局部坐标系
-    Eigen::Vector3d w(0, 0, 1);                  // 垂直向上 (截面高度方向)
-    Eigen::Vector3d v = w.cross(u).normalized(); // 水平方向 (翼缘方向)
-
-    // 计算点在 v 方向（翼缘方向）的投影
-    std::vector<double> v_projections;
-    for (const auto &pt : beam_result.points->points) {
-        Eigen::Vector3d p(pt.x - beam_result.center[0], pt.y - beam_result.center[1], pt.z - beam_result.center[2]);
-        v_projections.push_back(p.dot(v));
-    }
-
-    if (v_projections.empty()) {
-        return -1.0;
-    }
-
-    // 使用直方图分析找到翼缘的实际宽度
-    // 工字钢截面呈 H 形，大部分点集中在翼缘的两侧
-    double v_min   = *std::min_element(v_projections.begin(), v_projections.end());
-    double v_max   = *std::max_element(v_projections.begin(), v_projections.end());
-    double v_range = v_max - v_min;
-
-    // 将 v 方向分成多个区间，统计点分布
-    const int        num_bins = 50;
-    std::vector<int> histogram(num_bins, 0);
-    double           bin_width = v_range / num_bins;
-
-    for (double v_proj : v_projections) {
-        int bin = std::min(static_cast<int>((v_proj - v_min) / bin_width), num_bins - 1);
-        histogram[bin]++;
-    }
-
-    // 找到密度最高的区域（对应翼缘位置）
-    // 对于H型截面，应该有两个峰值（上下翼缘）
-    int max_count = *std::max_element(histogram.begin(), histogram.end());
-    int threshold = max_count / 4; // 阈值：最大值的 1/4
-
-    // 找到有效区间（点密度超过阈值的区间）
-    int first_valid = -1, last_valid = -1;
-    for (int i = 0; i < num_bins; ++i) {
-        if (histogram[i] > threshold) {
-            if (first_valid < 0) first_valid = i;
-            last_valid = i;
-        }
-    }
-
-    if (first_valid < 0 || last_valid < 0 || last_valid <= first_valid) {
-        return -1.0;
-    }
-
-    // 翼缘宽度 = 有效区间的范围
-    double flange_width = (last_valid - first_valid + 1) * bin_width;
-
-    // 合理性检查：翼缘宽度应该在截面高度的 0.2-0.8 倍之间
-    double section_height = beam_result.dimensions[2];
-    if (flange_width < section_height * 0.15 || flange_width > section_height * 1.5) {
-        // 使用截面高度的 0.4 倍作为默认值
-        return section_height * 0.4;
-    }
-
-    return flange_width;
-}
-
-/// @brief 根据工字钢识别结果和输入参数更新输出结果
-/// @param inputs 输入参数
-/// @param beam_result 工字钢检测结果
-/// @param outputs 输出结果
-/// @return 是否成功更新
-bool IBeamFitter::updateOutputs(const IBeamInputs &inputs, const IBeamResult &beam_result, IBeamOutputs &outputs) {
-    // 1. 直接从输入参数复制
-    outputs.distance_tcp2surface = inputs.distance_tcp2surface;
-
-    // 2. 从检测结果中获取工字钢尺寸
-    // beam_result.dimensions: (length, v_span, w_span) 单位是米
-    // v_span: 水平面内垂直于主轴的跨度（可能包含端部结构，值偏大）
-    // w_span: Z方向（垂直方向）的跨度，即截面高度
-    double v_span = beam_result.dimensions[1] * 1000.0; // mm 水平跨度（可能偏大）
-    double w_span = beam_result.dimensions[2] * 1000.0; // mm 截面高度
-
-    // 工字钢截面高度：使用 Z 方向（w_span），因为工字钢通常水平放置
-    outputs.beam_height = w_span;
-
-    // 翼缘宽度计算：优先使用截面形状分析
-    double flange_width = calculateFlangeWidth(beam_result);
-    if (flange_width > 0) {
-        // 截面分析成功
-        outputs.wing_plate_width = (flange_width * 1000.0) / 2.0; // 翼缘宽度的一半 (mm)
-        ROS_INFO("[IBeamFitter::updateOutputs] Section analysis: Flange Width %.2fmm (Half : %.2fmm)",
-                 flange_width * 1000.0, outputs.wing_plate_width);
-    } else {
-        // 截面分析失败，使用备选方案
-        double estimated_flange_width;
-        if (v_span < w_span * 1.2 && v_span > 0.1 * w_span) {
-            // v_span 在合理范围内，使用它作为翼缘宽度
-            estimated_flange_width = v_span;
-        } else {
-            // v_span 不合理，使用截面高度的 0.4 倍作为估算
-            estimated_flange_width = w_span * 0.4;
-            ROS_WARN("[IBeamFitter::updateOutputs] v_span(%.2fmm) Error, using estimated flange width %.2fmm", v_span,
-                     estimated_flange_width);
-        }
-        outputs.wing_plate_width = estimated_flange_width / 2.0; // 翼缘宽度的一半 (mm)
-    }
-
-    // 3. 计算工作区域长度
-    std::string error_msg;
-    double      working_length =
-        calculateBeamSprayingLimit(inputs.arm_reach,    // R_max: 机械臂最大工作半径
-                                   inputs.d_base,       // D_base: 底座中心到腹板表面的水平距离
-                                   inputs.d_work,       // D_work: 喷枪物理长度 + 喷涂挂距
-                                   outputs.beam_height, // height: 工字钢腹板高度(使用识别出的 beam_height)
-                                   inputs.base_z_offset, // base_z_offset: 机械臂底座中心与腹板中心高度线的高度差
-                                   error_msg);
-
-    if (working_length <= 0) {
-        std::cerr << "[IBeamFitter::updateOutputs] Calculate working area length failed: " << error_msg << std::endl;
-        outputs.beam_length_of_working = 0;
-    } else {
-        outputs.beam_length_of_working = working_length; // std::min(working_length, inputs.length);
-    }
-
-    // 4. 设置工作区域中心点坐标(机械臂坐标系下)
-    outputs.surface_point = beam_result.center;
-
-    // 5. 计算平面方程系数
-    // 假设腹板平面的法向量垂直于主轴方向，朝向机器人
-    Eigen::Vector3d main_axis = beam_result.main_axis;
-
-    // 构建一个垂直于主轴的平面
-    // 平面法向量：从工字钢中心指向原点的方向(在XY平面上的投影)
-    Eigen::Vector3d to_origin = -beam_result.center;
-    to_origin[2]              = 0; // 投影到XY平面
-    double norm               = to_origin.norm();
-    if (norm > 1e-6) {
-        to_origin.normalize();
-    } else {
-        // 如果中心点在原点附近，使用默认方向
-        to_origin = Eigen::Vector3d(1.0, 0.0, 0.0);
-    }
-
-    // 确保法向量垂直于主轴
-    Eigen::Vector3d plane_normal = to_origin - to_origin.dot(main_axis) * main_axis;
-    norm                         = plane_normal.norm();
-    if (norm > 1e-6) {
-        plane_normal.normalize();
-    } else {
-        // 退化情况：使用另一种方式计算
-        plane_normal = main_axis.cross(Eigen::Vector3d(0, 0, 1));
-        norm         = plane_normal.norm();
-        if (norm > 1e-6) {
-            plane_normal.normalize();
-        } else {
-            plane_normal = Eigen::Vector3d(1.0, 0.0, 0.0);
-        }
-    }
-
-    // 平面方程: ax + by + cz + d = 0
-    // d = -(a*x0 + b*y0 + c*z0)
-    double d             = -plane_normal.dot(beam_result.center);
-    outputs.plane_coeffs = Eigen::Vector4d(plane_normal[0], plane_normal[1], plane_normal[2], d);
-
-    // 6. 设置区域长度方向的单位向量(主轴方向)
-    outputs.plane_rx = main_axis.normalized();
-
-    ROS_WARN("[IBeamFitter::updateOutputs] IBeamOutputs (Detect of Beam: L*W*H: %.2f*%.2f*%.2f m):",
-             beam_result.dimensions[0], beam_result.dimensions[1], beam_result.dimensions[2]);
-    ROS_WARN("  - beam_height : %.2f mm", outputs.beam_height);
-    ROS_WARN("  - beam_length_of_working : %.2f mm", outputs.beam_length_of_working);
-    ROS_WARN("  - wing_plate_width: %.2f mm", outputs.wing_plate_width);
-    ROS_WARN("  - surface_point: (%.2f, %.2f, %.2f) m", outputs.surface_point[0], outputs.surface_point[1],
-             outputs.surface_point[2]);
-    ROS_WARN("  - plane_coeffs: (%.3f, %.3f, %.3f, %.3f)", outputs.plane_coeffs[0], outputs.plane_coeffs[1],
-             outputs.plane_coeffs[2], outputs.plane_coeffs[3]);
-    ROS_WARN("  - plane_rx: (%.3f, %.3f, %.3f)", outputs.plane_rx[0], outputs.plane_rx[1], outputs.plane_rx[2]);
-
-    return true;
 }
