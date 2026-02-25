@@ -28,8 +28,8 @@ add_message_files(
     TargetPoseList.msg
     ProcessParam.msg
     SprayInfo.msg
-    # CylinderSlice.msg
-    # CylinderSliceArray.msg
+    IBeamProcessParam.msg
+    IBeamTargetInfo.msg
 )
 
 generate_messages(
