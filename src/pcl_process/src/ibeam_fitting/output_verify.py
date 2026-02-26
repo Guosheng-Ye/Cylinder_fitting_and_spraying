@@ -26,7 +26,45 @@ class IBeamVisualizer:
         self.fig = None
         self.ax = None
     
+    def draw_obb(self, center, dimensions, main_axis):
+        """绘制工字钢OBB包围盒"""
+        center = np.array(center)
+        dimensions = np.array(dimensions)
+        main_axis = np.array(main_axis)
+        if np.linalg.norm(main_axis) > 1e-6:
+            main_axis = main_axis / np.linalg.norm(main_axis)
+        
+        # 构建局部坐标系 (u, v, w)
+        u = main_axis
+        w_global = np.array([0, 0, 1])
+        v = np.cross(w_global, u)
+        if np.linalg.norm(v) < 1e-6:
+            v = np.array([0, 1, 0])
+        v = v / np.linalg.norm(v)
+        w = np.cross(u, v)
+        w = w / np.linalg.norm(w)
+        
+        # 计算8个顶点
+        hl, hw, hh = dimensions / 2.0
+        corners = []
+        for dx in [-1, 1]:
+            for dy in [-1, 1]:
+                for dz in [-1, 1]:
+                    pt = center + dx*hl*u + dy*hw*v + dz*hh*w
+                    corners.append(pt)
+        corners = np.array(corners)
+        
+        # 绘制12条边
+        edges = [
+            (0, 1), (2, 3), (4, 5), (6, 7), # Z方向
+            (0, 2), (1, 3), (4, 6), (5, 7), # Y方向
+            (0, 4), (1, 5), (2, 6), (3, 7)  # X方向
+        ]
+        for start, end in edges:
+            self.ax.plot3D(*zip(corners[start], corners[end]), color='red', linestyle='--', linewidth=1, alpha=0.5)
+
     def visualize(self, surface_points, work_points, normals,
+                  beam_center=None, beam_dimensions=None, beam_axis=None,
                   show_origin=True, title="I-Beam Slice Points Visualization"):
         """
         可视化工字钢的表面点、工作点及其关系
@@ -35,6 +73,9 @@ class IBeamVisualizer:
             surface_points: 表面点列表 [[x,y,z], ...]
             work_points: 工作点列表 [[x,y,z], ...]
             normals: 法向量列表 [[x,y,z], ...]
+            beam_center: 工字钢中心 [x,y,z]
+            beam_dimensions: 工字钢尺寸 [l,w,h]
+            beam_axis: 工字钢主轴 [x,y,z]
             show_origin: 是否显示原点 (机械臂基坐标系)
             title: 标题
         """
@@ -76,7 +117,12 @@ class IBeamVisualizer:
                           color='lime', arrow_length_ratio=0.3, linewidth=2,
                           label='Normal' if i == 0 else "") # 只为第一个添加图例
 
-        # 5. 设置坐标轴范围和标签
+        # 5. 绘制工字钢包围盒
+        if beam_center is not None and beam_dimensions is not None and beam_axis is not None:
+            self.draw_obb(beam_center, beam_dimensions, beam_axis)
+            self.ax.scatter(*beam_center, c='red', marker='s', s=50, label='Beam Center')
+
+        # 6. 设置坐标轴范围和标签
         all_points = np.vstack([surface_points, work_points])
         min_coords = all_points.min(axis=0)
         max_coords = all_points.max(axis=0)
@@ -91,7 +137,7 @@ class IBeamVisualizer:
         self.ax.set_ylim([center[1] - max_range, center[1] + max_range])
         self.ax.set_zlim([center[2] - max_range, center[2] + max_range])
         
-        # 6. 添加标题和图例
+        # 7. 添加标题和图例
         self.ax.set_title(title, fontsize=14, fontweight='bold')
         self.ax.legend(loc='upper right')
         
@@ -126,6 +172,9 @@ def parse_log_content(log_content):
         'surface_points': [],
         'work_points': [],
         'normals': [],
+        'beam_center': None,
+        'beam_dimensions': None,
+        'beam_axis': None
     }
     
     # 解析所有切片数据 (在 Base frame)
@@ -142,6 +191,28 @@ def parse_log_content(log_content):
                 result['normals'].append(n)
         except ValueError:
             continue
+            
+    # 解析工字钢本体信息
+    # Dimensions (LxWxH): 3.92 x 0.17 x 0.42 m
+    dim_match = re.search(r'Dimensions \(LxWxH\): ([0-9.]+) x ([0-9.]+) x ([0-9.]+) m', log_content)
+    if dim_match:
+        result['beam_dimensions'] = [float(dim_match.group(1)), float(dim_match.group(2)), float(dim_match.group(3))]
+
+    # 优先解析 Base Frame 下的中心点 (IBeam center: (-1.41, 7.88, 4.26) m in base frame)
+    pos_match = re.search(r'IBeam center: \(([^)]+)\) m in base frame', log_content)
+    
+    if not pos_match:
+        # Position=(-2.00, 4.59, 1.86) 或 surface_point: (-2.00, 4.59, 1.86) m
+        pos_match = re.search(r'Position=\(([^)]+)\)', log_content)
+    if not pos_match:
+        pos_match = re.search(r'surface_point: \(([^)]+)\) m', log_content)
+    if pos_match:
+        result['beam_center'] = [float(x.strip()) for x in pos_match.group(1).split(',')]
+
+    # plane_rx: (0.999, -0.019, -0.029)
+    axis_match = re.search(r'plane_rx: \(([^)]+)\)', log_content)
+    if axis_match:
+        result['beam_axis'] = [float(x.strip()) for x in axis_match.group(1).split(',')]
     
     return result
 
@@ -213,6 +284,9 @@ def main():
     surface_points = parsed_info.get('surface_points')
     work_points = parsed_info.get('work_points')
     normals = parsed_info.get('normals')
+    beam_center = parsed_info.get('beam_center')
+    beam_dimensions = parsed_info.get('beam_dimensions')
+    beam_axis = parsed_info.get('beam_axis')
     
     # 检查必要数据
     if not surface_points or not work_points or not normals:
@@ -225,6 +299,9 @@ def main():
     print(f"  找到 {len(surface_points)} 个表面点")
     print(f"  找到 {len(work_points)} 个工作点")
     print(f"  找到 {len(normals)} 个法向量")
+    if beam_center is not None:
+        print(f"  工字钢中心: {beam_center}")
+        print(f"  工字钢尺寸: {beam_dimensions}")
     print("=" * 60)
     
     # 创建可视化
@@ -233,6 +310,9 @@ def main():
         surface_points=surface_points,
         work_points=work_points,
         normals=normals,
+        beam_center=beam_center,
+        beam_dimensions=beam_dimensions,
+        beam_axis=beam_axis,
         show_origin=not args.no_origin,
         title=args.title
     )
