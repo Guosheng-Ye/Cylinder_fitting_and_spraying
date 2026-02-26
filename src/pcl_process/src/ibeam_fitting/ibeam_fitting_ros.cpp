@@ -136,7 +136,7 @@ void IBeamFittingROS::ibeamProcessParamCallback(const pcl_process::IBeamProcessP
     }
 }
 
-void IBeamFittingROS::generateTargetPoses(const IBeamOutputs& outputs) {
+void IBeamFittingROS::generateTargetPoses(const IBeamOutputs &outputs) {
     std::vector<IBeamSliceData> slices = fitter_->getSliceResults();
     if (slices.empty()) {
         return;
@@ -145,6 +145,15 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs& outputs) {
     pcl_process::TargetPoseList tpl_msg;
     const IBeamInputs          &inputs = fitter_->getIBeamParams();
     double                      d_base = inputs.d_base; // 底座中心到腹板表面的水平距离 (mm)
+
+    // 获取工字钢的几何中心点（切片中心）和法向量（指向机器人方向）
+    Eigen::Vector3d ibeam_center = outputs.surface_point;
+    ibeam_center[0] *= 1000.0; // 转换为mm
+    ibeam_center[1] *= 1000.0;
+    ibeam_center[2] *= 1000.0;
+    Eigen::Vector3d ibeam_base = tf_lidar2_base_->to_base_from_lidar(ibeam_center);
+    ROS_INFO("[IBeamFittingROS] IBeam center: (%.2f, %.2f, %.2f) m in base frame", ibeam_base.x() / 1000.0,
+             ibeam_base.y() / 1000.0, ibeam_base.z() / 1000.0);
 
     ROS_INFO("[IBeamFittingROS] Generating target poses for %zu slices (d_base=%.2f mm)", slices.size(), d_base);
 
@@ -155,7 +164,8 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs& outputs) {
         // 2. 计算基座作业点（目标点） - 雷达坐标系
         // 目标点 = 表面点 + 法向量 * d_base
         // slice.normal 指向机器人（即远离工字钢表面的方向），符合 d_base 的延伸方向
-        Eigen::Vector3d target_lidar = center_lidar + slice.normal.normalized() * d_base;
+        // Eigen::Vector3d target_lidar = center_lidar + slice.normal.normalized() * d_base;
+        Eigen::Vector3d target_lidar = slice.work_point_mm;
 
         // 3. 坐标转换：雷达坐标系 -> 基座坐标系
         Eigen::Vector3d target_base = tf_lidar2_base_->to_base_from_lidar(target_lidar);

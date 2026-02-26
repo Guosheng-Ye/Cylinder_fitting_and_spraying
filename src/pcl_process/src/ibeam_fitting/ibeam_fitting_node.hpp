@@ -53,11 +53,13 @@ struct IBeamOutputs {
 
 // 工字钢切片数据结构体
 struct IBeamSliceData {
-    int             id;              // 切片id
-    int             layer_index{0};  // 高度层索引 (沿主轴方向)
-    int             row_index{0};    // 行索引 (高度方向，对应beam_height)
-    Eigen::Vector3d center_mm;       // 切片中心坐标 (mm)
-    Eigen::Vector3d center_m;        // 切片中心坐标 (m)
+    int             id;             // 切片id
+    int             layer_index{0}; // 高度层索引 (沿主轴方向)
+    int             row_index{0};   // 行索引 (高度方向，对应beam_height)
+    Eigen::Vector3d center_mm;      // 切片中心坐标 (mm)
+    Eigen::Vector3d center_m;       // 切片中心坐标 (m)
+    Eigen::Vector3d work_point_mm; // 作业点坐标 (mm)，在切片中心基础上沿法向偏移distance_tcp2surface
+    Eigen::Vector3d work_point_m;  // 作业点坐标 (m)，在切片中心基础上沿法向偏移distance_tcp2surface
     double          slice_height_mm; // 切片高度 (mm)，来源于 beam_height
     double          slice_width_mm;  // 切片宽度 (mm)，来源于 beam_length_of_working
     Eigen::Vector3d normal;          // 切片法向量（指向机器人方向）
@@ -320,7 +322,7 @@ private:
     void viewerThread();
 
 public:
-    IBeamInputs    ibeam_inputs_{};     // 工艺参数输入
+    IBeamInputs ibeam_inputs_{}; // 工艺参数输入
 
 private:
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_;          // 输入点云

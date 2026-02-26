@@ -2195,6 +2195,11 @@ void IBeamFitter::sliceIBeam(const IBeamResult &beam_result, const IBeamOutputs 
             // 计算切片中心坐标 (m)
             Eigen::Vector3d slice_center_m = center + u_offset_m * u + h_offset_m * w;
 
+            // 计算作业点坐标 (m)
+            // work_point = surface_point + normal * d_base
+            double d_base_m = ibeam_inputs_.d_base / 1000.0;
+            Eigen::Vector3d work_point_m = slice_center_m + normal * d_base_m;
+
             // 填充切片数据
             IBeamSliceData slice;
             slice.id              = slice_id++;
@@ -2202,6 +2207,8 @@ void IBeamFitter::sliceIBeam(const IBeamResult &beam_result, const IBeamOutputs 
             slice.row_index       = num_height_slices - 1 - h_idx; // 从上到下的行索引
             slice.center_m        = slice_center_m;
             slice.center_mm       = slice_center_m * 1000.0; // 转换为mm
+            slice.work_point_m    = work_point_m;
+            slice.work_point_mm   = work_point_m * 1000.0;
             slice.slice_height_mm = actual_slice_height_mm;
             slice.slice_width_mm  = actual_slice_width_mm;
             slice.normal          = normal;
@@ -2387,6 +2394,13 @@ void IBeamFitter::visualizeResults() {
             // 蓝色中心点
             pcl::PointXYZ center_p(sc[0], sc[1], sc[2]);
             viewer_->addSphere(center_p, 0.02, 0.0, 0.0, 1.0, sid + "_center");
+
+            // 工作点 (品红色)
+            pcl::PointXYZ work_p(slice.work_point_m[0], slice.work_point_m[1], slice.work_point_m[2]);
+            viewer_->addSphere(work_p, 0.02, 1.0, 0.0, 1.0, sid + "_work");
+
+            // 连接线 (青色)
+            // viewer_->addLine(center_p, work_p, 0.0, 1.0, 1.0, sid + "_conn");
 
             // 切片ID文本标签（小号白色）
             pcl::PointXYZ label_pos(sc[0], sc[1], sc[2] + half_sh + 0.03);
