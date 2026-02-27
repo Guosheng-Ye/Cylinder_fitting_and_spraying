@@ -122,20 +122,20 @@ struct IBeamDetectionParams {
     int    min_cluster_size  = 10;   // 最小聚类点数
 
     // 聚类合并参数(第一轮 - 严格)
-    double merge_max_gap_strict             = 0.3; // 降低：最大间隙0.3m
+    double merge_max_gap_strict             = 0.15; // 降低：最大间隙0.15m
     double merge_max_height_diff_strict     = 0.10;
-    double merge_min_axis_similarity_strict = 0.97;
+    double merge_min_axis_similarity_strict = 0.98;
 
     // 聚类合并参数(第二轮 - 宽松)
     double merge_max_gap_loose             = 0.5; // 降低：最大间隙0.5m（原1.0m太大）
     double merge_max_height_diff_loose     = 0.15;
-    double merge_min_axis_similarity_loose = 0.95;
+    double merge_min_axis_similarity_loose = 0.96;
 
     // 工字钢判断阈值
-    double min_linearity    = 0.8;  // 最小线性度
+    double min_linearity    = 0.9;  // 最小线性度
     double min_length       = 1.5;  // 最小长度(米)
     double min_aspect_ratio = 2.5;  // 最小长宽比
-    double max_axis_z       = 0.2;  // 主轴Z分量最大值(水平性)
+    double max_axis_z       = 0.1;  // 主轴Z分量最大值(水平性)
     double min_width        = 0.1;  // 最小宽度
     double max_width        = 1.2;  // 最大宽度
     double min_thickness    = 0.03; // 最小厚度
@@ -144,7 +144,7 @@ struct IBeamDetectionParams {
     // 精细化参数
     double refine_max_v_span = 0.50; // 最大翼缘宽度
     double refine_max_w_span = 0.60; // 最大截面高度
-    double refine_min_v_span = 0.03; // 最小翼缘宽度
+    double refine_min_v_span = 0.30; // 最小翼缘宽度
     double refine_min_w_span = 0.05; // 最小截面高度
 
     // 扩展参数
