@@ -215,6 +215,24 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs &outputs) {
     // 发布 /target_pose_list
     target_pose_pub_.publish(tpl_msg);
     ROS_WARN("[IBeamFittingROS] Published TargetPoseList with %zu targets ", tpl_msg.targets.size());
+
+    // 发布工艺参数 /ibeam_process_param
+    pcl_process::IBeamProcessParam param_msg;
+    param_msg.distance    = inputs.distance_tcp2surface;
+    param_msg.step_height = inputs.step_height;
+    param_msg.step_length = inputs.step_length;
+    param_msg.lap         = inputs.lap;
+    param_msg.arm_reach   = inputs.arm_reach;
+    param_msg.mode_length = inputs.mode_length;
+    param_msg.length      = outputs.beam_length_of_working; // 使用计算得到的工作长度
+    param_msg.mode_theta  = inputs.mode_theta;
+    param_msg.theta       = inputs.theta;
+    process_param_pub_.publish(param_msg);
+    ROS_WARN("IBeamFittingROS: Published process parameters distance=%.2f mm, step_height=%.2f mm, step_length=%.2f "
+             "mm, lap=%.2f, arm_reach=%.2f mm, "
+             "mode_length=%d, length=%.2f mm, mode_theta=%d, theta=%.2f degrees",
+             param_msg.distance, inputs.step_height, inputs.step_length, inputs.lap, inputs.arm_reach,
+             inputs.mode_length, outputs.beam_length_of_working, inputs.mode_theta, inputs.theta);
 }
 
 void IBeamFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {
@@ -245,8 +263,8 @@ void IBeamFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
             if (!results.empty()) {
                 fitter_->updateOutputs(inputs, results[0], outputs);
             }
-            // 作业切片 - 使用设置的切片参数
-            fitter_->sliceIBeam(results[0], outputs, inputs.step_height, inputs.step_length);
+            // 作业切片 - 使用设置的切片参数 //宽使用手动设置宽，高使用工字钢高度
+            fitter_->sliceIBeam(results[0], outputs, 0, outputs.beam_length_of_working);
 
             // 生成并发布基座作业点
             generateTargetPoses(outputs);
