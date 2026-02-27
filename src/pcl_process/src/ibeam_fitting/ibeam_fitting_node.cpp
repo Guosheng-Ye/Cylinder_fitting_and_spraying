@@ -1889,7 +1889,7 @@ double IBeamFitter::calculateBeamSprayingLimit(double R_max, double D_base, doub
         // 均匀切分后的实际切片长度（<= user_slice_length）
         double adjusted_slice_length = beam_total_length / static_cast<double>(n_slices);
 
-        ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit] Manual length mode: "
+        ROS_INFO("[IBeamFitter::calculateBeamSprayingLimit] Manual length mode "
                  "beam_total=%.2f mm, user_slice_length=%.2f mm, n_slices=%d, adjusted_slice_length=%.2f mm",
                  beam_total_length, user_slice_length, n_slices, adjusted_slice_length);
 
@@ -2023,6 +2023,7 @@ bool IBeamFitter::updateOutputs(const IBeamInputs &inputs, const IBeamResult &be
                                    inputs.base_z_offset, // base_z_offset: 机械臂底座中心与腹板中心高度线的高度差
                                    error_msg);
     // 更新工字钢工作区域长度
+    //inputs.length = working_length; // 将计算得到的工作长度更新回输入参数，供后续使用
     outputs.beam_length_of_working = working_length;
     ROS_INFO("[IBeamFitter::updateOutputs] Calculated working length: %.2fmm (Error: %s)", working_length,
              error_msg.empty() ? "None" : error_msg.c_str());
@@ -2197,7 +2198,7 @@ void IBeamFitter::sliceIBeam(const IBeamResult &beam_result, const IBeamOutputs 
 
             // 计算作业点坐标 (m)
             // work_point = surface_point + normal * d_base
-            double d_base_m = ibeam_inputs_.d_base / 1000.0;
+            double          d_base_m     = ibeam_inputs_.d_base / 1000.0;
             Eigen::Vector3d work_point_m = slice_center_m + normal * d_base_m;
 
             // 填充切片数据
@@ -2368,9 +2369,9 @@ void IBeamFitter::visualizeResults() {
             double axis_sim = std::abs(slice.main_axis.normalized().dot(beam.main_axis.normalized()));
             if (axis_sim < 0.95) continue; // 不属于此工字钢
 
-            Eigen::Vector3d sc = slice.center_m;
-            double half_sw = slice.slice_width_mm / 2000.0;   // 宽度半值(m)，沿main_axis方向
-            double half_sh = slice.slice_height_mm / 2000.0;  // 高度半值(m)，沿Z方向
+            Eigen::Vector3d sc      = slice.center_m;
+            double          half_sw = slice.slice_width_mm / 2000.0;  // 宽度半值(m)，沿main_axis方向
+            double          half_sh = slice.slice_height_mm / 2000.0; // 高度半值(m)，沿Z方向
 
             Eigen::Vector3d u_dir = slice.main_axis.normalized(); // 沿工字钢长度方向
             Eigen::Vector3d w_dir(0, 0, 1);                       // 垂直向上
