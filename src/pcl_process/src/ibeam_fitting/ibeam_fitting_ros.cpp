@@ -1,7 +1,7 @@
 #include "ibeam_fitting_ros.hpp"
 
 void IBeamFittingROS::loadParams() {
-    // 加载检测参数
+    // 加载检测参数（从 ROS 参数服务器，含 YAML 配置文件和 launch 文件设置）
     IBeamDetectionParams params;
 
     // 空间过滤参数
@@ -17,24 +17,110 @@ void IBeamFittingROS::loadParams() {
     // 墙面移除参数
     nh_.param<double>("wall_distance_threshold", params.wall_distance_threshold, 0.08);
     nh_.param<int>("min_wall_points", params.min_wall_points, 500);
+    nh_.param<int>("max_wall_iterations", params.max_wall_iterations, 3);
 
     // 聚类参数
     nh_.param<double>("cluster_tolerance", params.cluster_tolerance, 0.18);
     nh_.param<int>("min_cluster_size", params.min_cluster_size, 10);
 
+    // 聚类合并参数(第一轮 - 严格)
+    nh_.param<double>("merge_max_gap_strict", params.merge_max_gap_strict, 0.15);
+    nh_.param<double>("merge_max_height_diff_strict", params.merge_max_height_diff_strict, 0.10);
+    nh_.param<double>("merge_min_axis_similarity_strict", params.merge_min_axis_similarity_strict, 0.98);
+
+    // 聚类合并参数(第二轮 - 宽松)
+    nh_.param<double>("merge_max_gap_loose", params.merge_max_gap_loose, 0.5);
+    nh_.param<double>("merge_max_height_diff_loose", params.merge_max_height_diff_loose, 0.15);
+    nh_.param<double>("merge_min_axis_similarity_loose", params.merge_min_axis_similarity_loose, 0.96);
+
     // 工字钢判断阈值
-    nh_.param<double>("min_linearity", params.min_linearity, 0.8);
+    nh_.param<double>("min_linearity", params.min_linearity, 0.9);
     nh_.param<double>("min_length", params.min_length, 1.5);
     nh_.param<double>("min_aspect_ratio", params.min_aspect_ratio, 2.5);
-    nh_.param<double>("max_axis_z", params.max_axis_z, 0.2);
+    nh_.param<double>("max_axis_z", params.max_axis_z, 0.1);
+    nh_.param<double>("min_width", params.min_width, 0.1);
+    nh_.param<double>("max_width", params.max_width, 1.2);
+    nh_.param<double>("min_thickness", params.min_thickness, 0.03);
+    nh_.param<double>("max_thickness", params.max_thickness, 0.8);
+
+    // 精细化参数
+    nh_.param<double>("refine_max_v_span", params.refine_max_v_span, 0.50);
+    nh_.param<double>("refine_max_w_span", params.refine_max_w_span, 0.60);
+    nh_.param<double>("refine_min_v_span", params.refine_min_v_span, 0.30);
+    nh_.param<double>("refine_min_w_span", params.refine_min_w_span, 0.05);
+
+    // 扩展参数
+    nh_.param<double>("extend_min_target_length", params.extend_min_target_length, 3.5);
 
     fitter_->setParams(params);
 
-    ROS_INFO("Detection params loaded:");
-    ROS_INFO("  Distance range: [%.1f, %.1f] m", params.min_distance, params.max_distance);
-    ROS_INFO("  Min height: %.1f m", params.min_height);
-    ROS_INFO("  Min linearity: %.2f", params.min_linearity);
-    ROS_INFO("  Min length: %.1f m", params.min_length);
+    ROS_INFO("Detection params loaded (all %d parameters):", 30);
+    ROS_INFO("  [Spatial]  Distance: [%.1f, %.1f] m, Min height: %.1f m", params.min_distance, params.max_distance, params.min_height);
+    ROS_INFO("  [Preprocess]  Voxel: %.3f, SOR neighbors: %d, SOR std: %.2f", params.voxel_size, params.sor_neighbors, params.sor_std_ratio);
+    ROS_INFO("  [Wall]  Threshold: %.3f, Min points: %d, Max iters: %d", params.wall_distance_threshold, params.min_wall_points, params.max_wall_iterations);
+    ROS_INFO("  [Cluster]  Tolerance: %.3f, Min size: %d", params.cluster_tolerance, params.min_cluster_size);
+    ROS_INFO("  [IBeam]  Linearity: %.2f, Length: %.1f, Aspect: %.1f, AxisZ: %.2f", params.min_linearity, params.min_length, params.min_aspect_ratio, params.max_axis_z);
+    ROS_INFO("  [IBeam]  Width: [%.2f, %.2f], Thickness: [%.3f, %.2f]", params.min_width, params.max_width, params.min_thickness, params.max_thickness);
+    ROS_INFO("  [Refine]  V-span: [%.2f, %.2f], W-span: [%.2f, %.2f]", params.refine_min_v_span, params.refine_max_v_span, params.refine_min_w_span, params.refine_max_w_span);
+    ROS_INFO("  [Extend]  Min target length: %.1f m", params.extend_min_target_length);
+}
+
+/// @brief dynamic_reconfigure 回调 - 运行时动态更新检测参数
+void IBeamFittingROS::dynamicReconfigureCallback(pcl_process::IBeamDetectionConfig &config, uint32_t level) {
+    ROS_INFO("=== dynamic_reconfigure: Updating detection parameters (level=%u) ===", level);
+
+    IBeamDetectionParams params;
+
+    // 空间过滤参数
+    params.max_distance = config.max_distance;
+    params.min_distance = config.min_distance;
+    params.min_height   = config.min_height;
+
+    // 预处理参数
+    params.voxel_size    = config.voxel_size;
+    params.sor_neighbors = config.sor_neighbors;
+    params.sor_std_ratio = config.sor_std_ratio;
+
+    // 墙面移除参数
+    params.wall_distance_threshold = config.wall_distance_threshold;
+    params.min_wall_points         = config.min_wall_points;
+    params.max_wall_iterations     = config.max_wall_iterations;
+
+    // 聚类参数
+    params.cluster_tolerance = config.cluster_tolerance;
+    params.min_cluster_size  = config.min_cluster_size;
+
+    // 聚类合并参数(第一轮 - 严格)
+    params.merge_max_gap_strict             = config.merge_max_gap_strict;
+    params.merge_max_height_diff_strict     = config.merge_max_height_diff_strict;
+    params.merge_min_axis_similarity_strict = config.merge_min_axis_similarity_strict;
+
+    // 聚类合并参数(第二轮 - 宽松)
+    params.merge_max_gap_loose             = config.merge_max_gap_loose;
+    params.merge_max_height_diff_loose     = config.merge_max_height_diff_loose;
+    params.merge_min_axis_similarity_loose = config.merge_min_axis_similarity_loose;
+
+    // 工字钢判断阈值
+    params.min_linearity    = config.min_linearity;
+    params.min_length       = config.min_length;
+    params.min_aspect_ratio = config.min_aspect_ratio;
+    params.max_axis_z       = config.max_axis_z;
+    params.min_width        = config.min_width;
+    params.max_width        = config.max_width;
+    params.min_thickness    = config.min_thickness;
+    params.max_thickness    = config.max_thickness;
+
+    // 精细化参数
+    params.refine_max_v_span = config.refine_max_v_span;
+    params.refine_max_w_span = config.refine_max_w_span;
+    params.refine_min_v_span = config.refine_min_v_span;
+    params.refine_min_w_span = config.refine_min_w_span;
+
+    // 扩展参数
+    params.extend_min_target_length = config.extend_min_target_length;
+
+    fitter_->setParams(params);
+    ROS_INFO("Detection parameters updated via dynamic_reconfigure.");
 }
 
 /// @brief 工艺参数设置函数

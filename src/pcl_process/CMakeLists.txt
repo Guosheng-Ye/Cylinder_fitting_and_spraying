@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
     message_generation
     geometry_msgs
     roslib
+    dynamic_reconfigure
 )
 find_package(PCL REQUIRED)
 
@@ -38,6 +39,11 @@ generate_messages(
     geometry_msgs
 )
 
+## dynamic_reconfigure 配置
+generate_dynamic_reconfigure_options(
+    cfg/IBeamDetection.cfg
+)
+
 catkin_package(
     CATKIN_DEPENDS
     roscpp
@@ -47,6 +53,7 @@ catkin_package(
     std_msgs
     message_runtime
     geometry_msgs
+    dynamic_reconfigure
     DEPENDS
     PCL
     INCLUDE_DIRS
