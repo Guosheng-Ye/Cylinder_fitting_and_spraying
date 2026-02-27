@@ -147,6 +147,15 @@ struct IBeamDetectionParams {
     double refine_min_v_span = 0.30; // 最小翼缘宽度
     double refine_min_w_span = 0.05; // 最小截面高度
 
+    // 端部裁剪参数
+    double trim_outlier_ratio      = 1.3;  // 端部切片尺寸异常倍率（>典型值的该倍率即裁掉）
+    double trim_v_shift_threshold  = 0.05; // 截面v方向中心偏移阈值(米)
+    double trim_w_shift_threshold  = 0.08; // 截面w方向中心偏移阈值(米)
+    double trim_aspect_diff_ratio  = 0.5;  // 截面长宽比偏差比例阈值
+    double trim_density_ratio_high = 2.5;  // 点密度上限倍率
+    double trim_density_ratio_low  = 0.25; // 点密度下限倍率
+    double trim_score_ratio        = 0.3;  // H型截面分数衰减比例阈值
+
     // 扩展参数
     double extend_min_target_length = 3.5; // 扩展目标最小长度
 };

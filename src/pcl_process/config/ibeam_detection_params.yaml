@@ -51,5 +51,15 @@ refine_max_w_span: 0.60  # 最大截面高度 (米)
 refine_min_v_span: 0.30  # 最小翼缘宽度 (米)
 refine_min_w_span: 0.05  # 最小截面高度 (米)
 
+# ========== 端部裁剪参数 ==========
+# 这些参数直接控制工字钢两端的裁剪程度，调大阈值 = 更宽松 = 保留更多端部
+trim_outlier_ratio:      1.3   # 端部尺寸异常倍率 (>典型值该倍数则裁掉，调大→宽松)
+trim_v_shift_threshold:  0.05  # 截面v方向中心偏移阈值 (米，调大→宽松)
+trim_w_shift_threshold:  0.08  # 截面w方向中心偏移阈值 (米，调大→宽松)
+trim_aspect_diff_ratio:  0.5   # 截面长宽比偏差比例阈值 (调大→宽松)
+trim_density_ratio_high: 2.5   # 点密度上限倍率 (高于则异常，调大→宽松)
+trim_density_ratio_low:  0.25  # 点密度下限倍率 (低于则异常，调小→宽松)
+trim_score_ratio:        0.3   # H型截面分数衰减比例阈值 (调小→宽松)
+
 # ========== 扩展参数 ==========
 extend_min_target_length: 3.5  # 扩展目标最小长度 (米)

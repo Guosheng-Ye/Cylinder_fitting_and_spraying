@@ -1444,11 +1444,10 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
             double typical_v    = mid_v_spans[mid_v_spans.size() / 2];
             double typical_w    = mid_w_spans[mid_w_spans.size() / 2];
 
-            // 异常阈值：比典型值大 30% 以上（更严格地过滤端部圆柱/法兰）
-            const double outlier_ratio  = 1.3;
-            double       diam_threshold = typical_diam * outlier_ratio;
-            double       v_threshold    = typical_v * outlier_ratio;
-            double       w_threshold    = typical_w * outlier_ratio;
+            // 异常阈值：比典型值大 outlier_ratio 以上（过滤端部圆柱/法兰）
+            double diam_threshold = typical_diam * detection_params_.trim_outlier_ratio;
+            double v_threshold    = typical_v * detection_params_.trim_outlier_ratio;
+            double w_threshold    = typical_w * detection_params_.trim_outlier_ratio;
 
             std::cout << "       端部检测: 典型截面 diam=" << typical_diam << ", v=" << typical_v << ", w=" << typical_w
                       << std::endl;
@@ -1613,29 +1612,30 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                     std::string reason;
 
                     // 条件1: H型截面分数远低于中间段参考值
-                    if (ref_score_med > 0.2 && shape_slices[s].ibeam_score < ref_score_med * 0.3) {
+                    // 条件1: H型截面分数远低于中间段参考值
+                    if (ref_score_med > 0.2 && shape_slices[s].ibeam_score < ref_score_med * detection_params_.trim_score_ratio) {
                         bad = true;
                         reason += "H分数低(" + std::to_string(shape_slices[s].ibeam_score).substr(0,4) + ")";
                     }
 
                     // 条件2: v方向中心偏移过大（侧向偏移，可能是支架/连接件）
                     double v_shift = std::abs(shape_slices[s].v_center - ref_v_med);
-                    if (v_shift > 0.05) {
+                    if (v_shift > detection_params_.trim_v_shift_threshold) {
                         bad = true;
                         reason += " v偏移=" + std::to_string(v_shift).substr(0,5);
                     }
 
                     // 条件3: w方向中心偏移过大（高度偏移）
                     double w_shift = std::abs(shape_slices[s].w_center - ref_w_med);
-                    if (w_shift > 0.08) {
+                    if (w_shift > detection_params_.trim_w_shift_threshold) {
                         bad = true;
                         reason += " w偏移=" + std::to_string(w_shift).substr(0,5);
                     }
 
-                    // 条件4: 截面长宽比与参考段差异超过50%
+                    // 条件4: 截面长宽比与参考段差异超过阈值
                     if (ref_aspect_med > 0.1) {
                         double aspect_diff = std::abs(shape_slices[s].aspect_ratio - ref_aspect_med) / ref_aspect_med;
-                        if (aspect_diff > 0.5) {
+                        if (aspect_diff > detection_params_.trim_aspect_diff_ratio) {
                             bad = true;
                             reason += " 长宽比偏差=" + std::to_string(aspect_diff).substr(0,4);
                         }
@@ -1644,7 +1644,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                     // 条件5: 点密度异常（过高=密集连接件, 过低=稀疏噪声）
                     if (ref_density_med > 5) {
                         double density_ratio = shape_slices[s].point_count / ref_density_med;
-                        if (density_ratio > 2.5 || density_ratio < 0.25) {
+                        if (density_ratio > detection_params_.trim_density_ratio_high || density_ratio < detection_params_.trim_density_ratio_low) {
                             bad = true;
                             reason += " 密度比=" + std::to_string(density_ratio).substr(0,4);
                         }

@@ -49,12 +49,21 @@ void IBeamFittingROS::loadParams() {
     nh_.param<double>("refine_min_v_span", params.refine_min_v_span, 0.30);
     nh_.param<double>("refine_min_w_span", params.refine_min_w_span, 0.05);
 
+    // 端部裁剪参数
+    nh_.param<double>("trim_outlier_ratio", params.trim_outlier_ratio, 1.3);
+    nh_.param<double>("trim_v_shift_threshold", params.trim_v_shift_threshold, 0.05);
+    nh_.param<double>("trim_w_shift_threshold", params.trim_w_shift_threshold, 0.08);
+    nh_.param<double>("trim_aspect_diff_ratio", params.trim_aspect_diff_ratio, 0.5);
+    nh_.param<double>("trim_density_ratio_high", params.trim_density_ratio_high, 2.5);
+    nh_.param<double>("trim_density_ratio_low", params.trim_density_ratio_low, 0.25);
+    nh_.param<double>("trim_score_ratio", params.trim_score_ratio, 0.3);
+
     // 扩展参数
     nh_.param<double>("extend_min_target_length", params.extend_min_target_length, 3.5);
 
     fitter_->setParams(params);
 
-    ROS_INFO("Detection params loaded (all %d parameters):", 30);
+    ROS_INFO("Detection params loaded (all %d parameters):", 37);
     ROS_INFO("  [Spatial]  Distance: [%.1f, %.1f] m, Min height: %.1f m", params.min_distance, params.max_distance, params.min_height);
     ROS_INFO("  [Preprocess]  Voxel: %.3f, SOR neighbors: %d, SOR std: %.2f", params.voxel_size, params.sor_neighbors, params.sor_std_ratio);
     ROS_INFO("  [Wall]  Threshold: %.3f, Min points: %d, Max iters: %d", params.wall_distance_threshold, params.min_wall_points, params.max_wall_iterations);
@@ -62,6 +71,10 @@ void IBeamFittingROS::loadParams() {
     ROS_INFO("  [IBeam]  Linearity: %.2f, Length: %.1f, Aspect: %.1f, AxisZ: %.2f", params.min_linearity, params.min_length, params.min_aspect_ratio, params.max_axis_z);
     ROS_INFO("  [IBeam]  Width: [%.2f, %.2f], Thickness: [%.3f, %.2f]", params.min_width, params.max_width, params.min_thickness, params.max_thickness);
     ROS_INFO("  [Refine]  V-span: [%.2f, %.2f], W-span: [%.2f, %.2f]", params.refine_min_v_span, params.refine_max_v_span, params.refine_min_w_span, params.refine_max_w_span);
+    ROS_INFO("  [Trim]  Outlier: %.2f, V-shift: %.3f, W-shift: %.3f, Aspect: %.2f, Density: [%.2f, %.2f], Score: %.2f",
+             params.trim_outlier_ratio, params.trim_v_shift_threshold, params.trim_w_shift_threshold,
+             params.trim_aspect_diff_ratio, params.trim_density_ratio_low, params.trim_density_ratio_high,
+             params.trim_score_ratio);
     ROS_INFO("  [Extend]  Min target length: %.1f m", params.extend_min_target_length);
 }
 
@@ -115,6 +128,15 @@ void IBeamFittingROS::dynamicReconfigureCallback(pcl_process::IBeamDetectionConf
     params.refine_max_w_span = config.refine_max_w_span;
     params.refine_min_v_span = config.refine_min_v_span;
     params.refine_min_w_span = config.refine_min_w_span;
+
+    // 端部裁剪参数
+    params.trim_outlier_ratio      = config.trim_outlier_ratio;
+    params.trim_v_shift_threshold  = config.trim_v_shift_threshold;
+    params.trim_w_shift_threshold  = config.trim_w_shift_threshold;
+    params.trim_aspect_diff_ratio  = config.trim_aspect_diff_ratio;
+    params.trim_density_ratio_high = config.trim_density_ratio_high;
+    params.trim_density_ratio_low  = config.trim_density_ratio_low;
+    params.trim_score_ratio        = config.trim_score_ratio;
 
     // 扩展参数
     params.extend_min_target_length = config.extend_min_target_length;
