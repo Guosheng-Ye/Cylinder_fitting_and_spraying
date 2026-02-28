@@ -42,6 +42,7 @@ generate_messages(
 ## dynamic_reconfigure 配置
 generate_dynamic_reconfigure_options(
     cfg/IBeamDetection.cfg
+    cfg/CylinderDetection.cfg
 )
 
 catkin_package(
@@ -149,6 +150,7 @@ target_link_libraries(livox_accumulator_node
 add_executable(cylinder_fitting_node_ros
     src/cylinder_fitting/cylinder_fitting_ros.cpp
 )
+add_dependencies(cylinder_fitting_node_ros ${PROJECT_NAME}_gencfg ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(cylinder_fitting_node_ros
     cylinder_fitting_node
     ${catkin_LIBRARIES}
@@ -161,6 +163,7 @@ target_link_libraries(cylinder_fitting_node_ros
 add_executable(ibeam_fitting_node_ros
     src/ibeam_fitting/ibeam_fitting_ros.cpp
 )
+add_dependencies(ibeam_fitting_node_ros ${PROJECT_NAME}_gencfg ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(ibeam_fitting_node_ros
     ibeam_fitting_node
     ${catkin_LIBRARIES}

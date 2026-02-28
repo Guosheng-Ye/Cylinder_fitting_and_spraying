@@ -1,0 +1,25 @@
+# ============================================================================
+# 圆柱拟合检测参数配置文件
+# 文件: cylinder_detection_params.yaml
+# 说明: 所有参数均可通过此文件修改，无需重新编译
+#       运行时也可通过 rqt_reconfigure 动态调整
+# 用法: roslaunch pcl_process cylinder_fitting.launch
+# ============================================================================
+
+# ========== 圆柱模型拟合参数 ==========
+min_inliers:        300    # 最小内点数
+max_inliers:        600    # 最大内点数
+min_inlier_ratio:   0.02   # 最小内点比例
+max_inlier_ratio:   0.50   # 最大内点比例
+min_height_m:       1.00   # 最小高度 (米)
+min_radius_m:       0.30   # 最小半径 (米)
+max_radius_m:       0.40   # 最大半径 (米)
+min_radial_rel_std: 0.00   # 最小径向相对标准差
+max_radial_rel_std: 0.15   # 最大径向相对标准差
+
+# ========== 轴向校正参数 ==========
+use_ideal_axis:           true   # 是否使用理想竖直轴向 (0, 0, 1)
+axis_angle_threshold_deg: 15.0   # 拟合轴向与竖直方向夹角阈值 (度)，小于此值时使用理想轴向
+
+# ========== 虚拟原点参数 ==========
+virtual_base_to_surface:  600.0  # 虚拟原点到圆柱表面的距离 (mm)

@@ -1,0 +1,11 @@
+<launch>
+  <!-- 雷达处理节点 -->
+  <node pkg="pcl_process" type="rslidar_process_node_ros" name="rslidar_process_node" output="screen"/>
+
+  <!-- 圆柱拟合检测节点 -->
+  <node pkg="pcl_process" type="cylinder_fitting_node_ros" name="cylinder_fitting_node" output="screen">
+    <!-- 从YAML配置文件加载所有检测参数 -->
+    <!-- 修改参数只需编辑 config/cylinder_detection_params.yaml，无需重新编译 -->
+    <rosparam file="$(find pcl_process)/config/cylinder_detection_params.yaml" command="load"/>
+  </node>
+</launch>

@@ -15,6 +15,9 @@
 #include <pcl_process/SprayInfo.h>
 #include <pcl_process/TargetInfo.h>
 #include <pcl_process/TargetPoseList.h>
+
+#include <dynamic_reconfigure/server.h>
+#include <pcl_process/CylinderDetectionConfig.h>
 class CylinderFittingROS {
 public:
     CylinderFittingROS(ros::NodeHandle &nh)
@@ -22,9 +25,9 @@ public:
         , tf_lidar2_base_(new FlexedArmTF())
         , nh_(nh) {
 
-        // 从参数服务器读取虚拟原点到圆柱表面的距离
-        nh.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 800.0);
-        ROS_INFO("CylinderFittingROS: virtual_base_to_surface = %.2f mm", virtual_base_to_surface_);
+        // 从YAML配置文件/参数服务器加载所有检测参数
+        loadParams();
+        ROS_INFO("CylinderFittingROS: detection parameters loaded.");
 
         // 主控命令订阅 (增大队列到10)
         main_ctl_sub_ = nh.subscribe("/achieve_work_pose", 10, &CylinderFittingROS::mainCtlCallback, this);
@@ -53,6 +56,12 @@ public:
         // 喷涂作业区域面积发布
         spray_area_pub_ = nh.advertise<pcl_process::SprayInfo>("/spray_info", 1, true);
         ROS_INFO("CylinderFittingROS: Ready to publish spray area info...");
+
+        // 初始化 dynamic_reconfigure 服务器（自动触发一次回调加载初始参数）
+        dyn_reconf_server_ = std::make_shared<dynamic_reconfigure::Server<pcl_process::CylinderDetectionConfig>>(nh_);
+        dyn_reconf_server_->setCallback(
+            boost::bind(&CylinderFittingROS::dynamicReconfigureCallback, this, _1, _2));
+        ROS_INFO("CylinderFittingROS: dynamic_reconfigure server initialized.");
     }
 
 public:
@@ -63,6 +72,13 @@ private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
     void mainCtlCallback(const std_msgs::Bool::ConstPtr &msg);
     void processParamsCallback(const pcl_process::ProcessParam::ConstPtr &msg);
+
+    // 从ROS参数加载检测参数
+    void loadParams();
+    // dynamic_reconfigure 回调
+    void dynamicReconfigureCallback(pcl_process::CylinderDetectionConfig &config, uint32_t level);
+    // 将缓存的模型参数 + 工艺参数合并后设置到 fitter
+    void applyFittingParams();
 
 private:
     ros::NodeHandle                 nh_;                // 节点句柄
@@ -79,16 +95,33 @@ private:
 
     std::shared_ptr<FlexedArmTF> tf_lidar2_base_; // 雷达到车辆基座坐标变换
 
-    // 记录历史值
-    double last_distance_   = -1.0;
-    double last_step_width_ = -1.0;
-    double last_height_     = -1.0;
-    double last_lap_        = -1.0;
-    double last_arm_reach_  = -1;
-    int    last_mode_       = -1;
-    int    last_k_          = -1;
-    int    last_w0_         = -1;
+    // dynamic_reconfigure 服务器
+    std::shared_ptr<dynamic_reconfigure::Server<pcl_process::CylinderDetectionConfig>> dyn_reconf_server_;
 
-    // 从 launch 文件读取的参数
-    double virtual_base_to_surface_{800.0}; // 虚拟原点到圆柱表面的距离 (mm)
+    // 记录历史值（工艺参数，来自processParamsCallback）
+    double last_distance_    = -1.0;
+    double last_step_width_  = -1.0;
+    double last_step_height_ = -1.0;
+    double last_height_      = -1.0;
+    double last_lap_         = -1.0;
+    double last_arm_reach_   = -1;
+    int    last_mode_        = -1;
+    int    last_k_           = -1;
+    int    last_w0_          = -1;
+
+    // 缓存的模型参数（来自 YAML / dynamic_reconfigure）
+    int    loaded_min_inliers_{300};
+    int    loaded_max_inliers_{600};
+    double loaded_min_inlier_ratio_{0.02};
+    double loaded_max_inlier_ratio_{0.50};
+    double loaded_min_height_m_{1.00};
+    double loaded_min_radius_m_{0.30};
+    double loaded_max_radius_m_{0.40};
+    double loaded_min_radial_rel_std_{0.00};
+    double loaded_max_radial_rel_std_{0.15};
+    bool   loaded_use_ideal_axis_{true};
+    double loaded_axis_angle_threshold_deg_{15.0};
+
+    // 从 YAML / dynamic_reconfigure 读取的参数
+    double virtual_base_to_surface_{600.0}; // 虚拟原点到圆柱表面的距离 (mm)
 };

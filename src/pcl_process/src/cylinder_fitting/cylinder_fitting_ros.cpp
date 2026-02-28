@@ -5,6 +5,115 @@
 #include <atomic>
 #include <set>
 
+/// @brief 从ROS参数服务器加载检测参数（YAML配置文件 + launch文件设置）
+void CylinderFittingROS::loadParams() {
+    // 圆柱模型拟合参数
+    int min_inliers, max_inliers;
+    nh_.param<int>("min_inliers", min_inliers, 300);
+    nh_.param<int>("max_inliers", max_inliers, 600);
+
+    double min_inlier_ratio, max_inlier_ratio;
+    nh_.param<double>("min_inlier_ratio", min_inlier_ratio, 0.02);
+    nh_.param<double>("max_inlier_ratio", max_inlier_ratio, 0.50);
+
+    double min_height_m, min_radius_m, max_radius_m;
+    nh_.param<double>("min_height_m", min_height_m, 1.00);
+    nh_.param<double>("min_radius_m", min_radius_m, 0.30);
+    nh_.param<double>("max_radius_m", max_radius_m, 0.40);
+
+    double min_radial_rel_std, max_radial_rel_std;
+    nh_.param<double>("min_radial_rel_std", min_radial_rel_std, 0.00);
+    nh_.param<double>("max_radial_rel_std", max_radial_rel_std, 0.15);
+
+    // 轴向校正参数
+    bool use_ideal_axis;
+    double axis_angle_threshold_deg;
+    nh_.param<bool>("use_ideal_axis", use_ideal_axis, true);
+    nh_.param<double>("axis_angle_threshold_deg", axis_angle_threshold_deg, 15.0);
+
+    // 虚拟原点参数
+    nh_.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 600.0);
+
+    // 保存模型参数到成员变量（供 setOption 使用）
+    loaded_min_inliers_       = min_inliers;
+    loaded_max_inliers_       = max_inliers;
+    loaded_min_inlier_ratio_  = min_inlier_ratio;
+    loaded_max_inlier_ratio_  = max_inlier_ratio;
+    loaded_min_height_m_      = min_height_m;
+    loaded_min_radius_m_      = min_radius_m;
+    loaded_max_radius_m_      = max_radius_m;
+    loaded_min_radial_rel_std_ = min_radial_rel_std;
+    loaded_max_radial_rel_std_ = max_radial_rel_std;
+    loaded_use_ideal_axis_     = use_ideal_axis;
+    loaded_axis_angle_threshold_deg_ = axis_angle_threshold_deg;
+
+    ROS_INFO("Cylinder detection params loaded:");
+    ROS_INFO("  [Model]  Inliers: [%d, %d], Ratio: [%.3f, %.3f]", min_inliers, max_inliers, min_inlier_ratio, max_inlier_ratio);
+    ROS_INFO("  [Model]  Height: %.2f m, Radius: [%.2f, %.2f] m", min_height_m, min_radius_m, max_radius_m);
+    ROS_INFO("  [Model]  Radial std: [%.3f, %.3f]", min_radial_rel_std, max_radial_rel_std);
+    ROS_INFO("  [Axis]   Use ideal: %s, Threshold: %.1f deg", use_ideal_axis ? "true" : "false", axis_angle_threshold_deg);
+    ROS_INFO("  [VBase]  Virtual base to surface: %.1f mm", virtual_base_to_surface_);
+}
+
+/// @brief dynamic_reconfigure 回调 - 运行时动态更新检测参数
+void CylinderFittingROS::dynamicReconfigureCallback(pcl_process::CylinderDetectionConfig &config, uint32_t level) {
+    ROS_INFO("=== dynamic_reconfigure: Updating cylinder detection parameters (level=%u) ===", level);
+
+    // 更新缓存的模型参数
+    loaded_min_inliers_       = config.min_inliers;
+    loaded_max_inliers_       = config.max_inliers;
+    loaded_min_inlier_ratio_  = config.min_inlier_ratio;
+    loaded_max_inlier_ratio_  = config.max_inlier_ratio;
+    loaded_min_height_m_      = config.min_height_m;
+    loaded_min_radius_m_      = config.min_radius_m;
+    loaded_max_radius_m_      = config.max_radius_m;
+    loaded_min_radial_rel_std_ = config.min_radial_rel_std;
+    loaded_max_radial_rel_std_ = config.max_radial_rel_std;
+    loaded_use_ideal_axis_     = config.use_ideal_axis;
+    loaded_axis_angle_threshold_deg_ = config.axis_angle_threshold_deg;
+    virtual_base_to_surface_   = config.virtual_base_to_surface;
+
+    // 用当前工艺参数 + 更新后的模型参数重新设置 fitter
+    applyFittingParams();
+
+    ROS_INFO("Cylinder detection parameters updated via dynamic_reconfigure.");
+}
+
+/// @brief 将缓存的模型参数 + 工艺参数合并后设置到 fitter
+void CylinderFittingROS::applyFittingParams() {
+    CylinderFitter::CylinderFitterParams params;
+
+    // 模型参数（来自 YAML / dynamic_reconfigure）
+    params.min_inliers       = loaded_min_inliers_;
+    params.max_inliers       = loaded_max_inliers_;
+    params.min_inlier_ratio  = loaded_min_inlier_ratio_;
+    params.max_inlier_ratio  = loaded_max_inlier_ratio_;
+    params.min_height_m      = loaded_min_height_m_;
+    params.min_radius_m      = loaded_min_radius_m_;
+    params.max_radius_m      = loaded_max_radius_m_;
+    params.min_radial_rel_std = loaded_min_radial_rel_std_;
+    params.max_radial_rel_std = loaded_max_radial_rel_std_;
+
+    // 轴向校正参数（来自 YAML / dynamic_reconfigure）
+    params.use_ideal_axis_          = loaded_use_ideal_axis_;
+    params.axis_angle_threshold_deg_ = loaded_axis_angle_threshold_deg_;
+
+    // 虚拟原点参数
+    params.virtual_base_to_surface_ = virtual_base_to_surface_;
+
+    // 工艺参数（来自 processParamsCallback / setOption）
+    params.slice_distance_ = last_distance_ > 0 ? last_distance_ : 750.0;
+    params.height_         = last_height_ > 0 ? last_height_ : 600.0;
+    params.step_width_     = last_step_width_ > 0 ? last_step_width_ : 300.0;
+    params.step_height_    = last_step_height_ > 0 ? last_step_height_ : 200.0;
+    params.r_initial_      = last_lap_ > 0 ? last_lap_ : 0.5;
+    params.robot_R_arm_    = last_arm_reach_ > 0 ? last_arm_reach_ : 1500.0;
+    params.work_mode_      = last_mode_ > 0 ? last_mode_ : 2;
+    params.k_              = last_k_ >= 0 ? last_k_ : 0;
+
+    this->fitter_->setFittingParams(params);
+}
+
 /// @brief 点云回调
 /// @param msg
 void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {
@@ -305,26 +414,19 @@ void CylinderFittingROS::setOption(const float distance, const float step_width,
     this->fitter_->sliceOptions().height_rings_  = false; // 高度层环线
     this->fitter_->sliceOptions().print_centers_ = true;  // 切片中心点
 
-    this->fitter_->setFittingParams(CylinderFitter::CylinderFitterParams{
-        .min_inliers              = 300,                      // 最小内点数
-        .max_inliers              = 600,                      // 最大内点数
-        .min_inlier_ratio         = 0.02,                     // 最小内点比例
-        .max_inlier_ratio         = 0.50,                     // 最大内点比例
-        .min_height_m             = 1.00,                     // 最小高度（米）
-        .min_radius_m             = 0.30,                     // 最小半径（米）
-        .max_radius_m             = 0.40,                     // 最大半径(米)
-        .min_radial_rel_std       = 0.00,                     // 最小径向相对标准差
-        .max_radial_rel_std       = 0.15,                     // 最大径向相对标准差
-        .slice_distance_          = distance,                 // 喷头工作间距（毫米）
-        .height_                  = height,                   // 工作区域高度(mm)
-        .step_width_              = step_width,               // 工作区域单次喷幅(mm)
-        .step_height_             = step_height,              // 工作区域单次高度(mm)
-        .r_initial_               = lap,                      // 初始搭接比例0.5
-        .robot_R_arm_             = arm_reach,                // 机械臂最大臂长1500mm
-        .virtual_base_to_surface_ = virtual_base_to_surface_, // 虚拟原点到圆柱表面的距离(mm)
-        .work_mode_               = mode,                     // 工作模式 1 手动 2 自动
-        .k_                       = k,                        // 宽度参数
-    });
+    // 更新工艺参数缓存
+    last_distance_   = distance;
+    last_step_width_ = step_width;
+    last_step_height_ = step_height;
+    last_height_     = height;
+    last_lap_        = lap;
+    last_arm_reach_  = arm_reach;
+    last_mode_       = mode;
+    last_k_          = k;
+
+    // 使用 YAML/dynamic_reconfigure 加载的模型参数 + 工艺参数
+    applyFittingParams();
+
     ROS_WARN("Cylinder fitting parameters have been set (virtual_base_to_surface=%.2f mm).", virtual_base_to_surface_);
 }
 
