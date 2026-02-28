@@ -6,7 +6,7 @@
 # 用法: roslaunch pcl_process cylinder_fitting.launch
 # ============================================================================
 
-# ========== 圆柱模型拟合参数 ==========
+# # ========== 圆柱模型拟合参数 ==========
 min_inliers:        300    # 最小内点数
 max_inliers:        600    # 最大内点数
 min_inlier_ratio:   0.02   # 最小内点比例
@@ -17,9 +17,38 @@ max_radius_m:       0.40   # 最大半径 (米)
 min_radial_rel_std: 0.00   # 最小径向相对标准差
 max_radial_rel_std: 0.15   # 最大径向相对标准差
 
-# ========== 轴向校正参数 ==========
-use_ideal_axis:           true   # 是否使用理想竖直轴向 (0, 0, 1)
+# ========== RANSAC轴向约束参数 ==========
+# eps_angle_deg 控制 RANSAC 拟合时允许圆柱轴向偏离竖直方向的最大角度
+# - 竖直立柱检测: 10~15 (只接受接近竖直的圆柱)
+# - 倾斜圆柱检测: 45~90 (接受大角度倾斜)
+eps_angle_deg:            10.0   # RANSAC轴向容差 (度)
+
+# ========== 轴向校正参数(切片阶段) ==========
+use_ideal_axis:           true   # 是否使用理想竖直轴向 (0, 0, 1) - 倾斜圆柱应设为 false
 axis_angle_threshold_deg: 15.0   # 拟合轴向与竖直方向夹角阈值 (度)，小于此值时使用理想轴向
 
 # ========== 虚拟原点参数 ==========
 virtual_base_to_surface:  600.0  # 虚拟原点到圆柱表面的距离 (mm)
+
+# min_inliers:        50    # 最小内点数
+# max_inliers:        600    # 最大内点数
+# min_inlier_ratio:   0.005   # 最小内点比例
+# max_inlier_ratio:   0.50   # 最大内点比例
+# min_height_m:       1.00   # 最小高度 (米)
+# min_radius_m:       0.05   # 最小半径 (米)
+# max_radius_m:       0.20   # 最大半径 (米)
+# min_radial_rel_std: 0.00   # 最小径向相对标准差
+# max_radial_rel_std: 0.25   # 最大径向相对标准差
+
+# # ========== RANSAC轴向约束参数 ==========
+# # eps_angle_deg 控制 RANSAC 拟合时允许圆柱轴向偏离竖直方向的最大角度
+# # - 竖直立柱检测: 10~15 (只接受接近竖直的圆柱)
+# # - 倾斜圆柱检测: 45~90 (接受大角度倾斜)
+# eps_angle_deg:            80.0   # RANSAC轴向容差 (度) - 设为80°以检测大倾斜角圆柱
+
+# # ========== 轴向校正参数(切片阶段) ==========
+# use_ideal_axis:           false   # 是否使用理想竖直轴向 (0, 0, 1) - 倾斜圆柱应设为 false
+# axis_angle_threshold_deg: 45   # 拟合轴向与竖直方向夹角阈值 (度)，小于此值时使用理想轴向
+
+# # ========== 虚拟原点参数 ==========
+# virtual_base_to_surface:  600.0  # 虚拟原点到圆柱表面的距离 (mm)

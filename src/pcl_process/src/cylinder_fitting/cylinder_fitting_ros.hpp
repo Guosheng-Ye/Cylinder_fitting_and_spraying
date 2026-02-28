@@ -57,11 +57,29 @@ public:
         spray_area_pub_ = nh.advertise<pcl_process::SprayInfo>("/spray_info", 1, true);
         ROS_INFO("CylinderFittingROS: Ready to publish spray area info...");
 
-        // 初始化 dynamic_reconfigure 服务器（自动触发一次回调加载初始参数）
+        // 初始化 dynamic_reconfigure 服务器
         dyn_reconf_server_ = std::make_shared<dynamic_reconfigure::Server<pcl_process::CylinderDetectionConfig>>(nh_);
+
+        // 将 YAML 加载的参数回写给 dynamic_reconfigure，防止初始回调用 .cfg 默认值覆盖
+        pcl_process::CylinderDetectionConfig init_config;
+        init_config.min_inliers              = loaded_min_inliers_;
+        init_config.max_inliers              = loaded_max_inliers_;
+        init_config.min_inlier_ratio         = loaded_min_inlier_ratio_;
+        init_config.max_inlier_ratio         = loaded_max_inlier_ratio_;
+        init_config.min_height_m             = loaded_min_height_m_;
+        init_config.min_radius_m             = loaded_min_radius_m_;
+        init_config.max_radius_m             = loaded_max_radius_m_;
+        init_config.min_radial_rel_std       = loaded_min_radial_rel_std_;
+        init_config.max_radial_rel_std       = loaded_max_radial_rel_std_;
+        init_config.eps_angle_deg            = loaded_eps_angle_deg_;
+        init_config.use_ideal_axis           = loaded_use_ideal_axis_;
+        init_config.axis_angle_threshold_deg = loaded_axis_angle_threshold_deg_;
+        init_config.virtual_base_to_surface  = virtual_base_to_surface_;
+        dyn_reconf_server_->updateConfig(init_config);
+
         dyn_reconf_server_->setCallback(
             boost::bind(&CylinderFittingROS::dynamicReconfigureCallback, this, _1, _2));
-        ROS_INFO("CylinderFittingROS: dynamic_reconfigure server initialized.");
+        ROS_INFO("CylinderFittingROS: dynamic_reconfigure server initialized (synced with YAML).");
     }
 
 public:
@@ -121,6 +139,7 @@ private:
     double loaded_max_radial_rel_std_{0.15};
     bool   loaded_use_ideal_axis_{true};
     double loaded_axis_angle_threshold_deg_{15.0};
+    double loaded_eps_angle_deg_{10.0};
 
     // 从 YAML / dynamic_reconfigure 读取的参数
     double virtual_base_to_surface_{600.0}; // 虚拟原点到圆柱表面的距离 (mm)
