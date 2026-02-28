@@ -376,24 +376,25 @@ std::vector<double> CylinderFitter::cylinder_center_convert2robot_base(const std
 /// @param normals 法线
 void CylinderFitter::estimateNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                                      pcl::PointCloud<pcl::Normal>::Ptr   normals) {
+    const auto                                       &fp = fitting_params_;
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
     pcl::search::KdTree<pcl::PointXYZ>::Ptr           tree(new pcl::search::KdTree<pcl::PointXYZ>());
     ne.setInputCloud(cloud);
     ne.setSearchMethod(tree);
-    ne.setKSearch(50); // 搜索点数
+    ne.setKSearch(fp.normal_k_search_); // 法线估计KNN搜索邻居数
     ne.compute(*normals);
 }
 
 /// @brief 改进的墙面去除函数（支持多墙面场景）
 void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
-                                 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered, double angle_threshold = 15.0,
-                                 double distance_threshold = 0.02, int max_iterations = 5000) {
+                                 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered, double angle_threshold,
+                                 double distance_threshold, int max_iterations) {
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     *temp_cloud = *cloud;
 
     int       walls_removed = 0;
-    const int max_walls     = 2; // 最多检测4面墙
+    const int max_walls     = fitting_params_.max_walls_; // 最多检测墙面数
 
     while (walls_removed < max_walls && temp_cloud->size() > cloud->size() * 0.3) {
         pcl::SACSegmentation<pcl::PointXYZ> seg;
@@ -409,7 +410,7 @@ void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 
         seg.segment(*inliers, *coefficients);
 
-        if (inliers->indices.empty() || inliers->indices.size() < 100) {
+        if (inliers->indices.empty() || (int)inliers->indices.size() < fitting_params_.wall_min_plane_points_) {
             break; // 没有更多显著平面
         }
 
@@ -645,9 +646,14 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
         return;
     }
 
+    // 初始化
+    cylinder_model_.valid = false;
+    cylinder_model_.inliers->clear();
+    const auto &fp = fitting_params_;
+
     // 去除墙面点（支持多墙面）
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-    removeWalls(cloud, cloud_filtered);
+    removeWalls(cloud, cloud_filtered, fp.wall_angle_threshold_, fp.wall_distance_threshold_, fp.wall_max_iterations_);
 
     if (cloud_filtered->empty()) {
         ROS_WARN("No valid points left after wall removal.");
@@ -663,28 +669,24 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
         return;
     }
 
-    // 初始化
-    cylinder_model_.valid = false;
-    cylinder_model_.inliers->clear();
-    const auto &fp = fitting_params_;
-
     // 配置圆柱拟合分割器
     pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> seg;
     seg.setOptimizeCoefficients(true);
     seg.setModelType(pcl::SACMODEL_CYLINDER);
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setNormalDistanceWeight(0.1);
-    seg.setMaxIterations(10000);     // 适当减少，提高效率
-    seg.setDistanceThreshold(0.015); // 更严格的距离阈值
+    seg.setNormalDistanceWeight(fp.normal_distance_weight_);
+    seg.setMaxIterations(fp.ransac_max_iterations_);
+    seg.setDistanceThreshold(fp.ransac_distance_threshold_);
     seg.setRadiusLimits(fp.min_radius_m, fp.max_radius_m);
 
     // **关键修复：使用过滤后的点云和法向量**
     seg.setInputCloud(cloud_filtered);
     seg.setInputNormals(normals_filtered);
 
-    // 强制轴线接近垂直
+    // 轴向约束：参考轴为竖直方向 (0,0,1)，通过 eps_angle_deg_ 控制允许的偏离角度
+    // 竖直立柱: eps_angle_deg_=10~15°; 倾斜圆柱: eps_angle_deg_=45~90°
     seg.setAxis(Eigen::Vector3f(0, 0, 1));
-    seg.setEpsAngle(10.0f * M_PI / 180.0f);
+    seg.setEpsAngle(static_cast<float>(fp.eps_angle_deg_) * M_PI / 180.0f);
 
     pcl::ModelCoefficients::Ptr coefficients_cylinder(new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr      inliers_cylinder(new pcl::PointIndices);
@@ -785,10 +787,12 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
              (mean_r >= fp.min_radius_m && mean_r <= fp.max_radius_m) ? "ok" : "false");
     ROS_INFO("Radial rel std:   %.4f [%.4f-%.4f] %s", radial_rel_std, fp.min_radial_rel_std, fp.max_radial_rel_std,
              (radial_rel_std >= fp.min_radial_rel_std && radial_rel_std <= fp.max_radial_rel_std) ? "ok" : "false");
-    ROS_INFO("Radial range:     %.4f (%.1f%% of radius) [<30%%] %s", radial_range, radial_range_ratio * 100.0,
-             (radial_range_ratio <= 0.3) ? "ok" : "false");
-    ROS_INFO("Aspect ratio:     %.2f (H/D) [>1.5] %s", aspect_ratio, (aspect_ratio >= 1.5) ? "ok" : "false");
-    ROS_INFO("Circularity:      %.4f [>0.15] %s", circularity, (circularity >= 0.15) ? "ok" : "false");
+    ROS_INFO("Radial range:     %.4f (%.1f%% of radius) [<%.0f%%] %s", radial_range, radial_range_ratio * 100.0,
+             fp.max_radial_range_ratio_ * 100.0, (radial_range_ratio <= fp.max_radial_range_ratio_) ? "ok" : "false");
+    ROS_INFO("Aspect ratio:     %.2f (H/D) [>%.1f] %s", aspect_ratio, fp.min_aspect_ratio_,
+             (aspect_ratio >= fp.min_aspect_ratio_) ? "ok" : "false");
+    ROS_INFO("Circularity:      %.4f [>%.2f] %s", circularity, fp.min_circularity_,
+             (circularity >= fp.min_circularity_) ? "ok" : "false");
     ROS_INFO("=========================================");
 
     bool        valid = true;
@@ -809,13 +813,13 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     } else if (radial_rel_std < fp.min_radial_rel_std || radial_rel_std > fp.max_radial_rel_std) {
         valid         = false;
         reject_reason = "Radial relative std out of range";
-    } else if (radial_range_ratio > 0.3) {
+    } else if (radial_range_ratio > fp.max_radial_range_ratio_) {
         valid         = false;
         reject_reason = "Radial range too large (not circular)";
-    } else if (aspect_ratio < 1.5) {
+    } else if (aspect_ratio < fp.min_aspect_ratio_) {
         valid         = false;
         reject_reason = "Aspect ratio too small (too flat)";
-    } else if (circularity < 0.15) {
+    } else if (circularity < fp.min_circularity_) {
         valid         = false;
         reject_reason = "Circularity too low (not round enough)";
     }

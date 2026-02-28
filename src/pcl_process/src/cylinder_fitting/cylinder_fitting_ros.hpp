@@ -75,6 +75,28 @@ public:
         init_config.use_ideal_axis           = loaded_use_ideal_axis_;
         init_config.axis_angle_threshold_deg = loaded_axis_angle_threshold_deg_;
         init_config.virtual_base_to_surface  = virtual_base_to_surface_;
+
+        // RANSAC 拟合参数
+        init_config.normal_distance_weight    = loaded_normal_distance_weight_;
+        init_config.ransac_max_iterations     = loaded_ransac_max_iterations_;
+        init_config.ransac_distance_threshold = loaded_ransac_distance_threshold_;
+
+        // 圆柱验证阈值
+        init_config.max_radial_range_ratio = loaded_max_radial_range_ratio_;
+        init_config.min_aspect_ratio       = loaded_min_aspect_ratio_;
+        init_config.min_circularity        = loaded_min_circularity_;
+
+        // 法线估计参数
+        init_config.normal_k_search = loaded_normal_k_search_;
+
+        // 墙面移除参数
+        init_config.wall_angle_threshold    = loaded_wall_angle_threshold_;
+        init_config.wall_distance_threshold = loaded_wall_distance_threshold_;
+        init_config.wall_max_iterations     = loaded_wall_max_iterations_;
+        init_config.max_walls               = loaded_max_walls_;
+        init_config.wall_min_plane_points   = loaded_wall_min_plane_points_;
+        init_config.wall_min_keep_ratio     = loaded_wall_min_keep_ratio_;
+
         dyn_reconf_server_->updateConfig(init_config);
 
         dyn_reconf_server_->setCallback(
@@ -140,6 +162,27 @@ private:
     bool   loaded_use_ideal_axis_{true};
     double loaded_axis_angle_threshold_deg_{15.0};
     double loaded_eps_angle_deg_{10.0};
+
+    // RANSAC 拟合参数
+    double loaded_normal_distance_weight_{0.1};
+    int    loaded_ransac_max_iterations_{10000};
+    double loaded_ransac_distance_threshold_{0.015};
+
+    // 圆柱验证阈值
+    double loaded_max_radial_range_ratio_{0.30};
+    double loaded_min_aspect_ratio_{1.5};
+    double loaded_min_circularity_{0.15};
+
+    // 法线估计参数
+    int    loaded_normal_k_search_{50};
+
+    // 墙面移除参数
+    double loaded_wall_angle_threshold_{15.0};
+    double loaded_wall_distance_threshold_{0.02};
+    int    loaded_wall_max_iterations_{5000};
+    int    loaded_max_walls_{2};
+    int    loaded_wall_min_plane_points_{100};
+    double loaded_wall_min_keep_ratio_{0.15};
 
     // 从 YAML / dynamic_reconfigure 读取的参数
     double virtual_base_to_surface_{600.0}; // 虚拟原点到圆柱表面的距离 (mm)

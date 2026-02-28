@@ -35,6 +35,34 @@ void CylinderFittingROS::loadParams() {
     double eps_angle_deg;
     nh_.param<double>("eps_angle_deg", eps_angle_deg, 10.0);
 
+    // RANSAC 拟合参数
+    double normal_distance_weight;
+    int    ransac_max_iterations;
+    double ransac_distance_threshold;
+    nh_.param<double>("normal_distance_weight", normal_distance_weight, 0.1);
+    nh_.param<int>("ransac_max_iterations", ransac_max_iterations, 10000);
+    nh_.param<double>("ransac_distance_threshold", ransac_distance_threshold, 0.015);
+
+    // 圆柱验证阈值
+    double max_radial_range_ratio, min_aspect_ratio, min_circularity;
+    nh_.param<double>("max_radial_range_ratio", max_radial_range_ratio, 0.30);
+    nh_.param<double>("min_aspect_ratio", min_aspect_ratio, 1.5);
+    nh_.param<double>("min_circularity", min_circularity, 0.15);
+
+    // 法线估计参数
+    int normal_k_search;
+    nh_.param<int>("normal_k_search", normal_k_search, 50);
+
+    // 墙面移除参数
+    double wall_angle_threshold, wall_distance_threshold, wall_min_keep_ratio;
+    int    wall_max_iterations, max_walls, wall_min_plane_points;
+    nh_.param<double>("wall_angle_threshold", wall_angle_threshold, 15.0);
+    nh_.param<double>("wall_distance_threshold", wall_distance_threshold, 0.02);
+    nh_.param<int>("wall_max_iterations", wall_max_iterations, 5000);
+    nh_.param<int>("max_walls", max_walls, 2);
+    nh_.param<int>("wall_min_plane_points", wall_min_plane_points, 100);
+    nh_.param<double>("wall_min_keep_ratio", wall_min_keep_ratio, 0.15);
+
     // 虚拟原点参数
     nh_.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 600.0);
 
@@ -52,11 +80,38 @@ void CylinderFittingROS::loadParams() {
     loaded_axis_angle_threshold_deg_ = axis_angle_threshold_deg;
     loaded_eps_angle_deg_      = eps_angle_deg;
 
+    // RANSAC 拟合参数
+    loaded_normal_distance_weight_    = normal_distance_weight;
+    loaded_ransac_max_iterations_     = ransac_max_iterations;
+    loaded_ransac_distance_threshold_ = ransac_distance_threshold;
+
+    // 圆柱验证阈值
+    loaded_max_radial_range_ratio_ = max_radial_range_ratio;
+    loaded_min_aspect_ratio_       = min_aspect_ratio;
+    loaded_min_circularity_        = min_circularity;
+
+    // 法线估计参数
+    loaded_normal_k_search_ = normal_k_search;
+
+    // 墙面移除参数
+    loaded_wall_angle_threshold_    = wall_angle_threshold;
+    loaded_wall_distance_threshold_ = wall_distance_threshold;
+    loaded_wall_max_iterations_     = wall_max_iterations;
+    loaded_max_walls_               = max_walls;
+    loaded_wall_min_plane_points_   = wall_min_plane_points;
+    loaded_wall_min_keep_ratio_     = wall_min_keep_ratio;
+
     ROS_INFO("Cylinder detection params loaded:");
     ROS_INFO("  [Model]  Inliers: [%d, %d], Ratio: [%.3f, %.3f]", min_inliers, max_inliers, min_inlier_ratio, max_inlier_ratio);
     ROS_INFO("  [Model]  Height: %.2f m, Radius: [%.2f, %.2f] m", min_height_m, min_radius_m, max_radius_m);
     ROS_INFO("  [Model]  Radial std: [%.3f, %.3f]", min_radial_rel_std, max_radial_rel_std);
-    ROS_INFO("  [RANSAC] Eps angle: %.1f deg", eps_angle_deg);
+    ROS_INFO("  [RANSAC] Eps angle: %.1f deg, NormalWeight: %.3f, MaxIter: %d, DistThresh: %.4f",
+             eps_angle_deg, normal_distance_weight, ransac_max_iterations, ransac_distance_threshold);
+    ROS_INFO("  [Valid]  RadialRange: %.2f, AspectRatio: %.1f, Circularity: %.2f",
+             max_radial_range_ratio, min_aspect_ratio, min_circularity);
+    ROS_INFO("  [Normal] K-search: %d", normal_k_search);
+    ROS_INFO("  [Wall]   Angle: %.1f deg, Dist: %.3f, MaxIter: %d, MaxWalls: %d, MinPts: %d, KeepRatio: %.2f",
+             wall_angle_threshold, wall_distance_threshold, wall_max_iterations, max_walls, wall_min_plane_points, wall_min_keep_ratio);
     ROS_INFO("  [Axis]   Use ideal: %s, Threshold: %.1f deg", use_ideal_axis ? "true" : "false", axis_angle_threshold_deg);
     ROS_INFO("  [VBase]  Virtual base to surface: %.1f mm", virtual_base_to_surface_);
 }
@@ -79,6 +134,27 @@ void CylinderFittingROS::dynamicReconfigureCallback(pcl_process::CylinderDetecti
     loaded_axis_angle_threshold_deg_ = config.axis_angle_threshold_deg;
     loaded_eps_angle_deg_      = config.eps_angle_deg;
     virtual_base_to_surface_   = config.virtual_base_to_surface;
+
+    // RANSAC 拟合参数
+    loaded_normal_distance_weight_    = config.normal_distance_weight;
+    loaded_ransac_max_iterations_     = config.ransac_max_iterations;
+    loaded_ransac_distance_threshold_ = config.ransac_distance_threshold;
+
+    // 圆柱验证阈值
+    loaded_max_radial_range_ratio_ = config.max_radial_range_ratio;
+    loaded_min_aspect_ratio_       = config.min_aspect_ratio;
+    loaded_min_circularity_        = config.min_circularity;
+
+    // 法线估计参数
+    loaded_normal_k_search_ = config.normal_k_search;
+
+    // 墙面移除参数
+    loaded_wall_angle_threshold_    = config.wall_angle_threshold;
+    loaded_wall_distance_threshold_ = config.wall_distance_threshold;
+    loaded_wall_max_iterations_     = config.wall_max_iterations;
+    loaded_max_walls_               = config.max_walls;
+    loaded_wall_min_plane_points_   = config.wall_min_plane_points;
+    loaded_wall_min_keep_ratio_     = config.wall_min_keep_ratio;
 
     // 用当前工艺参数 + 更新后的模型参数重新设置 fitter
     applyFittingParams();
@@ -105,6 +181,27 @@ void CylinderFittingROS::applyFittingParams() {
     params.eps_angle_deg_            = loaded_eps_angle_deg_;
     params.use_ideal_axis_           = loaded_use_ideal_axis_;
     params.axis_angle_threshold_deg_ = loaded_axis_angle_threshold_deg_;
+
+    // RANSAC 拟合参数
+    params.normal_distance_weight_    = loaded_normal_distance_weight_;
+    params.ransac_max_iterations_     = loaded_ransac_max_iterations_;
+    params.ransac_distance_threshold_ = loaded_ransac_distance_threshold_;
+
+    // 圆柱验证阈值
+    params.max_radial_range_ratio_ = loaded_max_radial_range_ratio_;
+    params.min_aspect_ratio_       = loaded_min_aspect_ratio_;
+    params.min_circularity_        = loaded_min_circularity_;
+
+    // 法线估计参数
+    params.normal_k_search_ = loaded_normal_k_search_;
+
+    // 墙面移除参数
+    params.wall_angle_threshold_    = loaded_wall_angle_threshold_;
+    params.wall_distance_threshold_ = loaded_wall_distance_threshold_;
+    params.wall_max_iterations_     = loaded_wall_max_iterations_;
+    params.max_walls_               = loaded_max_walls_;
+    params.wall_min_plane_points_   = loaded_wall_min_plane_points_;
+    params.wall_min_keep_ratio_     = loaded_wall_min_keep_ratio_;
 
     // 虚拟原点参数
     params.virtual_base_to_surface_ = virtual_base_to_surface_;

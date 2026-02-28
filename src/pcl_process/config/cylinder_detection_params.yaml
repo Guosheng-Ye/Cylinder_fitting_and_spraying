@@ -23,6 +23,27 @@ max_radial_rel_std: 0.15   # 最大径向相对标准差
 # - 倾斜圆柱检测: 45~90 (接受大角度倾斜)
 eps_angle_deg:            10.0   # RANSAC轴向容差 (度)
 
+# ========== RANSAC拟合参数 ==========
+normal_distance_weight:      0.1     # 法线距离权重 (RANSAC拟合时法线与几何距离的平衡，0~1)
+ransac_max_iterations:       10000   # RANSAC最大迭代次数 (增大可提高鲁棒性但更慢)
+ransac_distance_threshold:   0.015   # RANSAC距离阈值 (米，点到圆柱面距离小于此值视为内点)
+
+# ========== 圆柱验证阈值 ==========
+max_radial_range_ratio:   0.30   # 径向极差比上限 (max_r-min_r)/mean_r，超过此值拒绝
+min_aspect_ratio:         1.5    # 最小长宽比 H/(2*R)，过小说明太扁不是立柱
+min_circularity:          0.15   # 最小圆度评分，低于此值拒绝
+
+# ========== 法线估计参数 ==========
+normal_k_search:          50     # 法线估计KNN搜索邻居数 (增大更平滑但更慢)
+
+# ========== 墙面移除参数 ==========
+wall_angle_threshold:     15.0   # 墙面检测角度阈值 (度)，平面法向量与Z轴夹角在90°±此值内视为墙面
+wall_distance_threshold:  0.02   # 墙面RANSAC距离阈值 (米)
+wall_max_iterations:      5000   # 墙面RANSAC最大迭代次数
+max_walls:                2      # 最多检测/移除的墙面数
+wall_min_plane_points:    100    # 墙面最小平面内点数，少于此值停止检测
+wall_min_keep_ratio:      0.15   # 墙面移除后最少保留点云比例 (安全阈值)
+
 # ========== 轴向校正参数(切片阶段) ==========
 use_ideal_axis:           true   # 是否使用理想竖直轴向 (0, 0, 1) - 倾斜圆柱应设为 false
 axis_angle_threshold_deg: 15.0   # 拟合轴向与竖直方向夹角阈值 (度)，小于此值时使用理想轴向
