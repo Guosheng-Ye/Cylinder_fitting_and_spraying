@@ -130,4 +130,45 @@ def calculate_angle_in_robot_frame_corrected(
 1.4 完善 `loadParams()` 未加载的参数（
 2. **端部裁剪参数化**（解决两端向中间收束问题）
 
+## 2.28
+1. 重置圆柱拟合参数加载
+1.1 尝试倾斜细长圆柱检测（未成功，检测参数异常）
+1.2 修改拟合参数支持动态调整
+2. 发布工字钢检测结果，完成机械臂工作点，喷涂表面点数据验证
+3. 扩大圆柱拟合部分雷达过滤数据点，过滤异常干扰数据
+4. 开发倾斜、细长圆柱识别适应算法
 
+
+## 3.2
+1. **圆柱拟合参数审计与BUG修复**
+1.1 审计 `CylinderFitterParams` 结构体与YAML配置的对齐情况，发现13个参数硬编码未暴露
+1.2 修复关键BUG：`seg.setEpsAngle(10.0f * M_PI / 180.0f)` 硬编码覆盖了 `fp.eps_angle_deg_`
+1.3 新增13个可配置参数（RANSAC/墙面移除/法线估计/验证阈值），涉及6个文件（.hpp/.cpp/.cfg/.yaml）
+2. **离线PCD分析工具开发** `cylinder_yaml_den.py`
+2.1 实现多策略圆柱检测：RANSAC + scipy最小二乘 + DBSCAN多尺度聚类
+2.2 新增 `--tilt-angle` 参数：倾斜角度目标过滤，拒绝I型钢干扰
+2.3 实现种子扩展算法 `_expand_cylinder_along_axis()`：从40点/1.3m扩展至232点/5.6m
+2.4 自动生成推荐YAML配置 `recommended_cylinder_params.yaml`
+2.5 matplotlib TkAgg 交互式3D可视化 + PNG输出
+3. **平面去除逻辑重构**
+3.1 修复 `removeWalls()` 硬编码0.3循环终止条件，改用 `wall_min_keep_ratio_` 参数
+3.2 新增地面/天花板检测（法向量与Z轴夹角 < threshold 即为水平面）
+3.3 非墙非地面的倾斜平面不再触发 `break`，改为跳过并继续搜索
+4. **法线估计优化**
+4.1 将法线估计从平面去除前移至平面去除后，避免墙面/地面点污染圆柱点的K近邻法线
+5. **RANSAC参考轴可配置化**
+5.1 新增 `ransac_axis_x/y/z` 参数，支持自定义参考轴方向（竖直/倾斜场景切换）
+5.2 修改 `setAxis()` 从硬编码 `(0,0,1)` 改为参数化输入
+5.3 收紧 `eps_angle_deg` 至20°配合精确参考轴，排除竖直伪圆柱
+5.4 涉及6个文件：.hpp/.cpp/ros.cpp/ros.hpp/.cfg/.yaml
+6. **RANSAC参数调优**
+6.1 `normal_distance_weight` 从0.1降至0.05：法线不纯时避免过度惩罚
+6.2 `ransac_distance_threshold` 放宽至25mm：适配R=89mm稀疏目标
+6.3 `ransac_max_iterations` 增至150000：低法线权重+稀疏目标需更多迭代
+6.4 新增RANSAC诊断日志：输入参数、参考轴方向、拟合结果的倾斜角
+7. **日志发布BUG修复**
+7.1 修复 `ProcessParam` 发布日志中 `arm_reach` 用 `%d` 格式化 `float64` 导致后续字段全部错位
+8. **检测验证**
+8.1 倾斜圆柱检测成功：tilt=43.3°, R=70mm, H=4.83m, axis=[0.686,0.021,0.727]
+8.2 切片成功：6层沿倾斜轴排列，覆盖角180°，重叠率63.2%
+8.3 竖直圆柱YAML参数适配新代码（补充ransac_axis、调整wall_angle_threshold等）

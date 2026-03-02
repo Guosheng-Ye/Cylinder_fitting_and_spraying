@@ -35,6 +35,12 @@ void CylinderFittingROS::loadParams() {
     double eps_angle_deg;
     nh_.param<double>("eps_angle_deg", eps_angle_deg, 10.0);
 
+    // RANSAC 参考轴方向 (竖直立柱默认 0,0,1; 倾斜圆柱设为实际轴向)
+    double ransac_axis_x, ransac_axis_y, ransac_axis_z;
+    nh_.param<double>("ransac_axis_x", ransac_axis_x, 0.0);
+    nh_.param<double>("ransac_axis_y", ransac_axis_y, 0.0);
+    nh_.param<double>("ransac_axis_z", ransac_axis_z, 1.0);
+
     // RANSAC 拟合参数
     double normal_distance_weight;
     int    ransac_max_iterations;
@@ -79,6 +85,9 @@ void CylinderFittingROS::loadParams() {
     loaded_use_ideal_axis_     = use_ideal_axis;
     loaded_axis_angle_threshold_deg_ = axis_angle_threshold_deg;
     loaded_eps_angle_deg_      = eps_angle_deg;
+    loaded_ransac_axis_x_      = ransac_axis_x;
+    loaded_ransac_axis_y_      = ransac_axis_y;
+    loaded_ransac_axis_z_      = ransac_axis_z;
 
     // RANSAC 拟合参数
     loaded_normal_distance_weight_    = normal_distance_weight;
@@ -105,8 +114,9 @@ void CylinderFittingROS::loadParams() {
     ROS_INFO("  [Model]  Inliers: [%d, %d], Ratio: [%.3f, %.3f]", min_inliers, max_inliers, min_inlier_ratio, max_inlier_ratio);
     ROS_INFO("  [Model]  Height: %.2f m, Radius: [%.2f, %.2f] m", min_height_m, min_radius_m, max_radius_m);
     ROS_INFO("  [Model]  Radial std: [%.3f, %.3f]", min_radial_rel_std, max_radial_rel_std);
-    ROS_INFO("  [RANSAC] Eps angle: %.1f deg, NormalWeight: %.3f, MaxIter: %d, DistThresh: %.4f",
-             eps_angle_deg, normal_distance_weight, ransac_max_iterations, ransac_distance_threshold);
+    ROS_INFO("  [RANSAC] Eps angle: %.1f deg, Axis: [%.3f,%.3f,%.3f], NormalWeight: %.3f, MaxIter: %d, DistThresh: %.4f",
+             eps_angle_deg, ransac_axis_x, ransac_axis_y, ransac_axis_z,
+             normal_distance_weight, ransac_max_iterations, ransac_distance_threshold);
     ROS_INFO("  [Valid]  RadialRange: %.2f, AspectRatio: %.1f, Circularity: %.2f",
              max_radial_range_ratio, min_aspect_ratio, min_circularity);
     ROS_INFO("  [Normal] K-search: %d", normal_k_search);
@@ -133,6 +143,9 @@ void CylinderFittingROS::dynamicReconfigureCallback(pcl_process::CylinderDetecti
     loaded_use_ideal_axis_     = config.use_ideal_axis;
     loaded_axis_angle_threshold_deg_ = config.axis_angle_threshold_deg;
     loaded_eps_angle_deg_      = config.eps_angle_deg;
+    loaded_ransac_axis_x_      = config.ransac_axis_x;
+    loaded_ransac_axis_y_      = config.ransac_axis_y;
+    loaded_ransac_axis_z_      = config.ransac_axis_z;
     virtual_base_to_surface_   = config.virtual_base_to_surface;
 
     // RANSAC 拟合参数
@@ -179,6 +192,9 @@ void CylinderFittingROS::applyFittingParams() {
 
     // 轴向校正参数（来自 YAML / dynamic_reconfigure）
     params.eps_angle_deg_            = loaded_eps_angle_deg_;
+    params.ransac_axis_x_            = loaded_ransac_axis_x_;
+    params.ransac_axis_y_            = loaded_ransac_axis_y_;
+    params.ransac_axis_z_            = loaded_ransac_axis_z_;
     params.use_ideal_axis_           = loaded_use_ideal_axis_;
     params.axis_angle_threshold_deg_ = loaded_axis_angle_threshold_deg_;
 
@@ -412,10 +428,11 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
             process_param_pub_.publish(process_param_msg);
             ROS_ERROR(
                 "Published ProcessParam: distance=%.2f, step_width=%.2f, step_height=%.2f, height=%.2f, lap=%.2f, "
-                "arm_reach=%d, mode=%d, k=%d, w0=%.2f",
+                "arm_reach=%.2f, mode=%d, k=%d, w0=%.2f",
                 process_param_msg.distance, process_param_msg.step_width, process_param_msg.step_height,
-                process_param_msg.height, process_param_msg.lap, process_param_msg.arm_reach, process_param_msg.mode,
-                process_param_msg.k, process_param_msg.w0);
+                process_param_msg.height, process_param_msg.lap,
+                static_cast<double>(process_param_msg.arm_reach), static_cast<int>(process_param_msg.mode),
+                static_cast<int>(process_param_msg.k), process_param_msg.w0);
 
             // 发布面积参数
             pcl_process::SprayInfo spray_info_msg;

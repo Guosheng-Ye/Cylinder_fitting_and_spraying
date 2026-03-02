@@ -111,8 +111,14 @@ public:
 
         // RANSAC 轴向约束参数
         // eps_angle_deg_ 控制 RANSAC 拟合时允许圆柱轴向偏离参考轴的最大角度
-        // 竖直立柱检测：设为 10~15；倾斜圆柱检测：设为 45~90
+        // 竖直立柱检测：设为 10~15；倾斜圆柱检测：设为 15~25
         double eps_angle_deg_{10.0};            // RANSAC轴向容差(度)，偏离参考轴超过此值的圆柱将被拒绝
+
+        // RANSAC 参考轴方向 (归一化后使用)
+        // 竖直立柱: (0,0,1); 倾斜~45°圆柱: (0.707,0,0.707)
+        double ransac_axis_x_{0.0};
+        double ransac_axis_y_{0.0};
+        double ransac_axis_z_{1.0};
 
         // RANSAC 拟合参数
         double normal_distance_weight_{0.1};     // 法线距离权重 (RANSAC拟合时法线与几何距离的平衡)

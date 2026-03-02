@@ -72,6 +72,9 @@ public:
         init_config.min_radial_rel_std       = loaded_min_radial_rel_std_;
         init_config.max_radial_rel_std       = loaded_max_radial_rel_std_;
         init_config.eps_angle_deg            = loaded_eps_angle_deg_;
+        init_config.ransac_axis_x            = loaded_ransac_axis_x_;
+        init_config.ransac_axis_y            = loaded_ransac_axis_y_;
+        init_config.ransac_axis_z            = loaded_ransac_axis_z_;
         init_config.use_ideal_axis           = loaded_use_ideal_axis_;
         init_config.axis_angle_threshold_deg = loaded_axis_angle_threshold_deg_;
         init_config.virtual_base_to_surface  = virtual_base_to_surface_;
@@ -162,6 +165,9 @@ private:
     bool   loaded_use_ideal_axis_{true};
     double loaded_axis_angle_threshold_deg_{15.0};
     double loaded_eps_angle_deg_{10.0};
+    double loaded_ransac_axis_x_{0.0};
+    double loaded_ransac_axis_y_{0.0};
+    double loaded_ransac_axis_z_{1.0};
 
     // RANSAC 拟合参数
     double loaded_normal_distance_weight_{0.1};
