@@ -15,3 +15,5 @@ src/pcl_process/src/cal_logs/test_ims/
 backup/12-22/src.zip
 backup/12-24/src.zip
 src/pcl_process/src/ibeam_fitting/__pycache__/imeam_detector.cpython-39.pyc
+src/pcl_process/src/cylinder_fitting/__pycache__/cylinder_yaml_den.cpython-39.pyc
+.gitignore
