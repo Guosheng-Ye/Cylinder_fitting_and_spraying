@@ -39,6 +39,6 @@ private:
     bool            last_has_output_ibeam_ = false;    // 工字钢过滤上次是否有输出
     
     // 过滤角度参数
-    static constexpr double CYLINDER_ANGLE_DEG = 20.0;  // 圆柱拟合：左右各20度
+    static constexpr double CYLINDER_ANGLE_DEG = 40.0;  // 圆柱拟合：左右各40度
     static constexpr double IBEAM_ANGLE_DEG = 50.0;     // 工字钢拟合：左右各50度
 };
