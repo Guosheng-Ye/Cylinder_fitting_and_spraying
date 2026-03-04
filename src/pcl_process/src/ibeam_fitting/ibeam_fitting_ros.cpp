@@ -211,7 +211,7 @@ void IBeamFittingROS::workingObjectCallback(const std_msgs::String::ConstPtr &ms
         current_work_object_ = new_object;
 
         // 工作对象切换时，根据 achieve_work_pose_ 联动更新 processing_ 状态
-        bool cmd_active = achieve_work_pose_.load(std::memory_order_acquire);
+        bool cmd_active     = achieve_work_pose_.load(std::memory_order_acquire);
         bool should_process = cmd_active && (new_object == "C");
         bool was_processing = processing_.load(std::memory_order_acquire);
         if (should_process && !was_processing) {
@@ -313,7 +313,7 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs &outputs) {
 
         // 4. 填充 TargetPose (单位: m)
         pcl_process::TargetPose pose;
-        pose.id = slice.id;
+        pose.id = slice.id + 1;
         pose.x  = target_base.x() / 1000.0;
         pose.y  = target_base.y() / 1000.0;
         pose.z  = target_base.z() / 1000.0;
@@ -325,9 +325,10 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs &outputs) {
         // ti_msg.id = slice.id; // IBeamTargetInfo has no id field
         // 填充表面点 (基座坐标系)
         ti_msg.surface_point = {center_base.x(), center_base.y(), center_base.z()};
-        // 填充法向量 (基座坐标系)
+        // 填充平面方程系数 (基座坐标系): ax + by + cz + d = 0
         Eigen::Vector3d normal_base = (target_base - center_base).normalized();
-        ti_msg.plane_coeffs         = {normal_base.x(), normal_base.y(), normal_base.z()};
+        double          d_coeff     = -normal_base.dot(center_base / 1000.0); // center_base 是 mm，转 m 计算 d
+        ti_msg.plane_coeffs         = {normal_base.x(), normal_base.y(), normal_base.z(), d_coeff};
 
         // 填充主轴方向 (基座坐标系)
         // 向量变换: V_base = R * V_lidar = to_base(P+V) - to_base(P)
@@ -337,19 +338,20 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs &outputs) {
         ti_msg.plane_rx                       = {axis_base.x(), axis_base.y(), axis_base.z()};
 
         // 填充切片尺寸 (mm)
+        ti_msg.id               = slice.id + 1;
         ti_msg.length           = slice.slice_width_mm;
         ti_msg.height           = slice.slice_height_mm;
         ti_msg.wing_plate_width = outputs.wing_plate_width;
 
-        // 发布喷涂目标点信息 /spray_target_pose
+        // 发布喷涂目标点信息 /ibeam_target_info
         spray_target_pose_pub_.publish(ti_msg);
-        ROS_WARN("[IBeamFittingROS] Published target info for slice %d: surface_point=(%.2f, %.2f, %.2f) "
+        ROS_WARN("[IBeamFittingROS] Published target info for slice_id %d: surface_point=(%.2f, %.2f, %.2f) "
                  "m,work_point=(%.2f, %.2f, %.2f) m,"
-                 "normal=(%.2f, %.2f, %.2f), "
-                 "main_axis=(%.2f, %.2f, %.2f), slice_width=%.2f mm, slice_height=%.2f mm",
-                 slice.id, center_base.x() / 1000.0, center_base.y() / 1000.0, center_base.z() / 1000.0, pose.x, pose.y,
-                 pose.z, normal_base.x(), normal_base.y(), normal_base.z(), axis_base.x(), axis_base.y(), axis_base.z(),
-                 slice.slice_width_mm, slice.slice_height_mm);
+                 "plane_coeffs=(%.3f, %.3f, %.3f, %.3f), main_axis=(%.2f, %.2f, %.2f),"
+                 "slice_width=%.2f mm, slice_height=%.2f mm, wing_plate_width=%.2f",
+                 ti_msg.id, center_base.x() / 1000.0, center_base.y() / 1000.0, center_base.z() / 1000.0, pose.x,
+                 pose.y, pose.z, normal_base.x(), normal_base.y(), normal_base.z(), d_coeff, axis_base.x(),
+                 axis_base.y(), axis_base.z(), slice.slice_width_mm, slice.slice_height_mm, ti_msg.wing_plate_width);
     }
 
     // 发布 /target_pose_list
@@ -373,6 +375,14 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs &outputs) {
              "mode_length=%d, length=%.2f mm, mode_theta=%d, theta=%.2f degrees",
              param_msg.distance, inputs.step_height, inputs.step_length, inputs.lap, inputs.arm_reach,
              inputs.mode_length, outputs.beam_length_of_working, inputs.mode_theta, inputs.theta);
+    // 发布面积参数
+    pcl_process::SprayInfo spray_info_msg;
+    spray_info_msg.num = slices.size();
+    spray_info_msg.area =
+        spray_info_msg.num * slices.front().slice_width_mm * slices.front().slice_height_mm / (1000 * 1000);
+    spray_area_pub_.publish(spray_info_msg);
+    ROS_INFO("Published SprayInfo: valid_slice_count=%d , valid_total_area=%.4f m^2", spray_info_msg.num,
+             spray_info_msg.area);
 }
 
 void IBeamFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {

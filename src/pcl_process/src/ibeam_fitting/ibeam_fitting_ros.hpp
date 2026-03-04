@@ -10,7 +10,7 @@
 #include <std_msgs/Bool.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/String.h>
-
+#include <pcl_process/SprayInfo.h>
 #include <dynamic_reconfigure/server.h>
 #include <pcl_process/IBeamDetectionConfig.h>
 
@@ -61,6 +61,10 @@ public:
         spray_target_pose_pub_ = nh_.advertise<pcl_process::IBeamTargetInfo>("/ibeam_target_info", 10, true);
         ROS_INFO("IBeamFittingROS: Ready to publish ibeam target info...");
 
+        // 喷涂作业区域面积发布
+        spray_area_pub_ = nh.advertise<pcl_process::SprayInfo>("/spray_info", 1, true);
+        ROS_INFO("IBeamFittingROS: Ready to publish spray area info...");
+
         // 初始化 dynamic_reconfigure 服务器（自动触发一次回调加载初始参数）
         dyn_reconf_server_ = std::make_shared<dynamic_reconfigure::Server<pcl_process::IBeamDetectionConfig>>(nh_);
         dyn_reconf_server_->setCallback(boost::bind(&IBeamFittingROS::dynamicReconfigureCallback, this, _1, _2));
@@ -101,6 +105,7 @@ private:
     ros::Publisher process_param_pub_;     // 发布工艺参数
     ros::Publisher target_pose_pub_;       // 发布目标位姿列表
     ros::Publisher spray_target_pose_pub_; // 发布喷涂作业目标位姿
+    ros::Publisher spray_area_pub_;        // 发布喷涂作业面积
 
     // dynamic_reconfigure 服务器
     std::shared_ptr<dynamic_reconfigure::Server<pcl_process::IBeamDetectionConfig>> dyn_reconf_server_;
