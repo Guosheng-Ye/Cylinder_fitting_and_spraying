@@ -9,6 +9,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/Float64.h>
+#include <std_msgs/String.h>
 
 #include "lidar2flexed_arm.hpp"
 #include <pcl_process/ProcessParam.h>
@@ -29,6 +30,10 @@ public:
         loadParams();
         ROS_INFO("CylinderFittingROS: detection parameters loaded.");
 
+        // 工作对象订阅
+        work_object_sub_ = nh.subscribe("/work_object", 10, &CylinderFittingROS::workingObjectCallback, this);
+        ROS_INFO("CylinderFittingROS: Subscribed to /work_object");
+
         // 主控命令订阅 (增大队列到10)
         main_ctl_sub_ = nh.subscribe("/achieve_work_pose", 10, &CylinderFittingROS::mainCtlCallback, this);
         ROS_INFO("CylinderFittingROS: Subscribed to /achieve_work_pose");
@@ -38,7 +43,8 @@ public:
         ROS_INFO("CylinderFittingROS: Subscribed to /rslidar_filtered_cylinder");
 
         // 工艺参数订阅 process_param_bridge
-        process_param_sub_ = nh.subscribe("/process_param_bridge", 10, &CylinderFittingROS::processParamsCallback, this);
+        process_param_sub_ =
+            nh.subscribe("/process_param_bridge", 10, &CylinderFittingROS::processParamsCallback, this);
         ROS_INFO("CylinderFittingROS: Subscribed to /process_param_bridge");
 
         // 工艺参数发布 process_param
@@ -102,19 +108,20 @@ public:
 
         dyn_reconf_server_->updateConfig(init_config);
 
-        dyn_reconf_server_->setCallback(
-            boost::bind(&CylinderFittingROS::dynamicReconfigureCallback, this, _1, _2));
+        dyn_reconf_server_->setCallback(boost::bind(&CylinderFittingROS::dynamicReconfigureCallback, this, _1, _2));
         ROS_INFO("CylinderFittingROS: dynamic_reconfigure server initialized (synced with YAML).");
     }
 
 public:
-    void setOption(const float distance, const float step_width, const float step_height, const float height,
-                   const float lap, const double arm_reach, const int mode, const int k);
+    void        setOption(const float distance, const float step_width, const float step_height, const float height,
+                          const float lap, const double arm_reach, const int mode, const int k);
+    std::string getCurrentWorkObject() const { return current_work_object_; }
 
 private:
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
     void mainCtlCallback(const std_msgs::Bool::ConstPtr &msg);
     void processParamsCallback(const pcl_process::ProcessParam::ConstPtr &msg);
+    void workingObjectCallback(const std_msgs::String::ConstPtr &msg);
 
     // 从ROS参数加载检测参数
     void loadParams();
@@ -125,12 +132,14 @@ private:
 
 private:
     ros::NodeHandle                 nh_;                // 节点句柄
+    ros::Subscriber                 work_object_sub_;   // 工作对象订阅
     ros::Subscriber                 lidar_data_sub_;    // 雷达数据订阅
     ros::Subscriber                 main_ctl_sub_;      // 主控命令订阅
     ros::Subscriber                 process_param_sub_; // 工艺参数订阅
     ros::Publisher                  process_param_pub_; // 工艺参数发布
     std::shared_ptr<CylinderFitter> fitter_;            // 圆柱拟合
     std::atomic<bool>               processing_{false};
+    std::atomic<bool>               achieve_work_pose_{false}; // 原始主控命令状态
 
     ros::Publisher target_pose_pub_;       //曲臂切片目标位姿发布
     ros::Publisher spray_target_pose_pub_; //喷涂作业目标位姿发布
@@ -141,6 +150,8 @@ private:
     // dynamic_reconfigure 服务器
     std::shared_ptr<dynamic_reconfigure::Server<pcl_process::CylinderDetectionConfig>> dyn_reconf_server_;
 
+    // 当前工作对象（由 /work_object 发布） "A" "B" "C" 等
+    std::string current_work_object_{"0"}; // 当前工作对象 A 圆柱 B 细圆柱
     // 记录历史值（工艺参数，来自processParamsCallback）
     double last_distance_    = -1.0;
     double last_step_width_  = -1.0;
@@ -180,7 +191,7 @@ private:
     double loaded_min_circularity_{0.15};
 
     // 法线估计参数
-    int    loaded_normal_k_search_{50};
+    int loaded_normal_k_search_{50};
 
     // 墙面移除参数
     double loaded_wall_angle_threshold_{15.0};

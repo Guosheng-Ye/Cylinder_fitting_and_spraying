@@ -26,7 +26,7 @@ void CylinderFittingROS::loadParams() {
     nh_.param<double>("max_radial_rel_std", max_radial_rel_std, 0.15);
 
     // 轴向校正参数
-    bool use_ideal_axis;
+    bool   use_ideal_axis;
     double axis_angle_threshold_deg;
     nh_.param<bool>("use_ideal_axis", use_ideal_axis, true);
     nh_.param<double>("axis_angle_threshold_deg", axis_angle_threshold_deg, 15.0);
@@ -73,21 +73,21 @@ void CylinderFittingROS::loadParams() {
     nh_.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 600.0);
 
     // 保存模型参数到成员变量（供 setOption 使用）
-    loaded_min_inliers_       = min_inliers;
-    loaded_max_inliers_       = max_inliers;
-    loaded_min_inlier_ratio_  = min_inlier_ratio;
-    loaded_max_inlier_ratio_  = max_inlier_ratio;
-    loaded_min_height_m_      = min_height_m;
-    loaded_min_radius_m_      = min_radius_m;
-    loaded_max_radius_m_      = max_radius_m;
-    loaded_min_radial_rel_std_ = min_radial_rel_std;
-    loaded_max_radial_rel_std_ = max_radial_rel_std;
-    loaded_use_ideal_axis_     = use_ideal_axis;
+    loaded_min_inliers_              = min_inliers;
+    loaded_max_inliers_              = max_inliers;
+    loaded_min_inlier_ratio_         = min_inlier_ratio;
+    loaded_max_inlier_ratio_         = max_inlier_ratio;
+    loaded_min_height_m_             = min_height_m;
+    loaded_min_radius_m_             = min_radius_m;
+    loaded_max_radius_m_             = max_radius_m;
+    loaded_min_radial_rel_std_       = min_radial_rel_std;
+    loaded_max_radial_rel_std_       = max_radial_rel_std;
+    loaded_use_ideal_axis_           = use_ideal_axis;
     loaded_axis_angle_threshold_deg_ = axis_angle_threshold_deg;
-    loaded_eps_angle_deg_      = eps_angle_deg;
-    loaded_ransac_axis_x_      = ransac_axis_x;
-    loaded_ransac_axis_y_      = ransac_axis_y;
-    loaded_ransac_axis_z_      = ransac_axis_z;
+    loaded_eps_angle_deg_            = eps_angle_deg;
+    loaded_ransac_axis_x_            = ransac_axis_x;
+    loaded_ransac_axis_y_            = ransac_axis_y;
+    loaded_ransac_axis_z_            = ransac_axis_z;
 
     // RANSAC 拟合参数
     loaded_normal_distance_weight_    = normal_distance_weight;
@@ -111,18 +111,22 @@ void CylinderFittingROS::loadParams() {
     loaded_wall_min_keep_ratio_     = wall_min_keep_ratio;
 
     ROS_INFO("Cylinder detection params loaded:");
-    ROS_INFO("  [Model]  Inliers: [%d, %d], Ratio: [%.3f, %.3f]", min_inliers, max_inliers, min_inlier_ratio, max_inlier_ratio);
+    ROS_INFO("  [Model]  Inliers: [%d, %d], Ratio: [%.3f, %.3f]", min_inliers, max_inliers, min_inlier_ratio,
+             max_inlier_ratio);
     ROS_INFO("  [Model]  Height: %.2f m, Radius: [%.2f, %.2f] m", min_height_m, min_radius_m, max_radius_m);
     ROS_INFO("  [Model]  Radial std: [%.3f, %.3f]", min_radial_rel_std, max_radial_rel_std);
-    ROS_INFO("  [RANSAC] Eps angle: %.1f deg, Axis: [%.3f,%.3f,%.3f], NormalWeight: %.3f, MaxIter: %d, DistThresh: %.4f",
-             eps_angle_deg, ransac_axis_x, ransac_axis_y, ransac_axis_z,
-             normal_distance_weight, ransac_max_iterations, ransac_distance_threshold);
-    ROS_INFO("  [Valid]  RadialRange: %.2f, AspectRatio: %.1f, Circularity: %.2f",
-             max_radial_range_ratio, min_aspect_ratio, min_circularity);
+    ROS_INFO(
+        "  [RANSAC] Eps angle: %.1f deg, Axis: [%.3f,%.3f,%.3f], NormalWeight: %.3f, MaxIter: %d, DistThresh: %.4f",
+        eps_angle_deg, ransac_axis_x, ransac_axis_y, ransac_axis_z, normal_distance_weight, ransac_max_iterations,
+        ransac_distance_threshold);
+    ROS_INFO("  [Valid]  RadialRange: %.2f, AspectRatio: %.1f, Circularity: %.2f", max_radial_range_ratio,
+             min_aspect_ratio, min_circularity);
     ROS_INFO("  [Normal] K-search: %d", normal_k_search);
     ROS_INFO("  [Wall]   Angle: %.1f deg, Dist: %.3f, MaxIter: %d, MaxWalls: %d, MinPts: %d, KeepRatio: %.2f",
-             wall_angle_threshold, wall_distance_threshold, wall_max_iterations, max_walls, wall_min_plane_points, wall_min_keep_ratio);
-    ROS_INFO("  [Axis]   Use ideal: %s, Threshold: %.1f deg", use_ideal_axis ? "true" : "false", axis_angle_threshold_deg);
+             wall_angle_threshold, wall_distance_threshold, wall_max_iterations, max_walls, wall_min_plane_points,
+             wall_min_keep_ratio);
+    ROS_INFO("  [Axis]   Use ideal: %s, Threshold: %.1f deg", use_ideal_axis ? "true" : "false",
+             axis_angle_threshold_deg);
     ROS_INFO("  [VBase]  Virtual base to surface: %.1f mm", virtual_base_to_surface_);
 }
 
@@ -131,22 +135,22 @@ void CylinderFittingROS::dynamicReconfigureCallback(pcl_process::CylinderDetecti
     ROS_INFO("=== dynamic_reconfigure: Updating cylinder detection parameters (level=%u) ===", level);
 
     // 更新缓存的模型参数
-    loaded_min_inliers_       = config.min_inliers;
-    loaded_max_inliers_       = config.max_inliers;
-    loaded_min_inlier_ratio_  = config.min_inlier_ratio;
-    loaded_max_inlier_ratio_  = config.max_inlier_ratio;
-    loaded_min_height_m_      = config.min_height_m;
-    loaded_min_radius_m_      = config.min_radius_m;
-    loaded_max_radius_m_      = config.max_radius_m;
-    loaded_min_radial_rel_std_ = config.min_radial_rel_std;
-    loaded_max_radial_rel_std_ = config.max_radial_rel_std;
-    loaded_use_ideal_axis_     = config.use_ideal_axis;
+    loaded_min_inliers_              = config.min_inliers;
+    loaded_max_inliers_              = config.max_inliers;
+    loaded_min_inlier_ratio_         = config.min_inlier_ratio;
+    loaded_max_inlier_ratio_         = config.max_inlier_ratio;
+    loaded_min_height_m_             = config.min_height_m;
+    loaded_min_radius_m_             = config.min_radius_m;
+    loaded_max_radius_m_             = config.max_radius_m;
+    loaded_min_radial_rel_std_       = config.min_radial_rel_std;
+    loaded_max_radial_rel_std_       = config.max_radial_rel_std;
+    loaded_use_ideal_axis_           = config.use_ideal_axis;
     loaded_axis_angle_threshold_deg_ = config.axis_angle_threshold_deg;
-    loaded_eps_angle_deg_      = config.eps_angle_deg;
-    loaded_ransac_axis_x_      = config.ransac_axis_x;
-    loaded_ransac_axis_y_      = config.ransac_axis_y;
-    loaded_ransac_axis_z_      = config.ransac_axis_z;
-    virtual_base_to_surface_   = config.virtual_base_to_surface;
+    loaded_eps_angle_deg_            = config.eps_angle_deg;
+    loaded_ransac_axis_x_            = config.ransac_axis_x;
+    loaded_ransac_axis_y_            = config.ransac_axis_y;
+    loaded_ransac_axis_z_            = config.ransac_axis_z;
+    virtual_base_to_surface_         = config.virtual_base_to_surface;
 
     // RANSAC 拟合参数
     loaded_normal_distance_weight_    = config.normal_distance_weight;
@@ -180,13 +184,13 @@ void CylinderFittingROS::applyFittingParams() {
     CylinderFitter::CylinderFitterParams params;
 
     // 模型参数（来自 YAML / dynamic_reconfigure）
-    params.min_inliers       = loaded_min_inliers_;
-    params.max_inliers       = loaded_max_inliers_;
-    params.min_inlier_ratio  = loaded_min_inlier_ratio_;
-    params.max_inlier_ratio  = loaded_max_inlier_ratio_;
-    params.min_height_m      = loaded_min_height_m_;
-    params.min_radius_m      = loaded_min_radius_m_;
-    params.max_radius_m      = loaded_max_radius_m_;
+    params.min_inliers        = loaded_min_inliers_;
+    params.max_inliers        = loaded_max_inliers_;
+    params.min_inlier_ratio   = loaded_min_inlier_ratio_;
+    params.max_inlier_ratio   = loaded_max_inlier_ratio_;
+    params.min_height_m       = loaded_min_height_m_;
+    params.min_radius_m       = loaded_min_radius_m_;
+    params.max_radius_m       = loaded_max_radius_m_;
     params.min_radial_rel_std = loaded_min_radial_rel_std_;
     params.max_radial_rel_std = loaded_max_radial_rel_std_;
 
@@ -266,7 +270,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
             pcl_process::TargetInfo                ti_msg;
 
             // Z轴工作高度约束
-            const double MIN_WORK_HEIGHT_MM = 0;//2000.0; // Z 轴统一抬高的高度 (mm)
+            const double MIN_WORK_HEIGHT_MM = 0; // 2000.0; // Z 轴统一抬高的高度 (mm)
             // const double SPRAY_OFFSET_MM    = 1150.0; // 喷涂工作点偏移距离 (mm)
 
             // 转换圆柱底部和顶部中心 (m -> mm) 到 Base 坐标系
@@ -430,9 +434,8 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 "Published ProcessParam: distance=%.2f, step_width=%.2f, step_height=%.2f, height=%.2f, lap=%.2f, "
                 "arm_reach=%.2f, mode=%d, k=%d, w0=%.2f",
                 process_param_msg.distance, process_param_msg.step_width, process_param_msg.step_height,
-                process_param_msg.height, process_param_msg.lap,
-                static_cast<double>(process_param_msg.arm_reach), static_cast<int>(process_param_msg.mode),
-                static_cast<int>(process_param_msg.k), process_param_msg.w0);
+                process_param_msg.height, process_param_msg.lap, static_cast<double>(process_param_msg.arm_reach),
+                static_cast<int>(process_param_msg.mode), static_cast<int>(process_param_msg.k), process_param_msg.w0);
 
             // 发布面积参数
             pcl_process::SprayInfo spray_info_msg;
@@ -500,19 +503,44 @@ void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam::
     }
 }
 
-void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
-    bool prev = processing_.load(std::memory_order_acquire);
-    bool next = msg->data;
+void CylinderFittingROS::workingObjectCallback(const std_msgs::String::ConstPtr &msg) {
+    std::string new_object = msg->data;
+    if (new_object != current_work_object_) {
+        ROS_WARN("Received new working object: %s (previous: %s)", new_object.c_str(), current_work_object_.c_str());
+        current_work_object_ = new_object;
 
-    // 状态未变化时不打印日志，避免刷屏
-    if (prev == next) {
+        // 工作对象切换时，根据 achieve_work_pose_ 联动更新 processing_ 状态
+        bool cmd_active = achieve_work_pose_.load(std::memory_order_acquire);
+        bool should_process = cmd_active && (new_object == "A" || new_object == "B");
+        bool was_processing = processing_.load(std::memory_order_acquire);
+        if (should_process && !was_processing) {
+            ROS_WARN("=== Work object switched to %s while active: START cylinder fitting ===", new_object.c_str());
+            processing_.store(true, std::memory_order_release);
+        } else if (!should_process && was_processing) {
+            ROS_WARN("=== Work object switched away from A/B while active: STOP cylinder fitting ===");
+            processing_.store(false, std::memory_order_release);
+        }
+    } else {
+        ROS_DEBUG("Received working object: %s (unchanged)", new_object.c_str());
+    }
+}
+
+void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
+    bool prev_cmd = achieve_work_pose_.load(std::memory_order_acquire);
+    bool next_cmd = msg->data;
+
+    // 命令未变化时不打印日志，避免刷屏
+    if (prev_cmd == next_cmd) {
         return;
     }
+    achieve_work_pose_.store(next_cmd, std::memory_order_release);
 
-    if (next) {
+    bool should_process = next_cmd && (getCurrentWorkObject() == "A" || getCurrentWorkObject() == "B");
+    bool was_processing = processing_.load(std::memory_order_acquire);
+    if (should_process && !was_processing) {
         ROS_WARN("=== Main control command: START cylinder fitting ===");
         processing_.store(true, std::memory_order_release);
-    } else {
+    } else if (!should_process && was_processing) {
         ROS_WARN("=== Main control command: STOP cylinder fitting ===");
         processing_.store(false, std::memory_order_release);
     }
@@ -537,14 +565,14 @@ void CylinderFittingROS::setOption(const float distance, const float step_width,
     this->fitter_->sliceOptions().print_centers_ = true;  // 切片中心点
 
     // 更新工艺参数缓存
-    last_distance_   = distance;
-    last_step_width_ = step_width;
+    last_distance_    = distance;
+    last_step_width_  = step_width;
     last_step_height_ = step_height;
-    last_height_     = height;
-    last_lap_        = lap;
-    last_arm_reach_  = arm_reach;
-    last_mode_       = mode;
-    last_k_          = k;
+    last_height_      = height;
+    last_lap_         = lap;
+    last_arm_reach_   = arm_reach;
+    last_mode_        = mode;
+    last_k_           = k;
 
     // 使用 YAML/dynamic_reconfigure 加载的模型参数 + 工艺参数
     applyFittingParams();
@@ -554,7 +582,7 @@ void CylinderFittingROS::setOption(const float distance, const float step_width,
 
 int main(int argc, char **argv) {
     ros::init(argc, argv, "cylinder_fitting_ros");
-    ros::NodeHandle nh("~");  // 使用私有命名空间，匹配 launch 文件中 <rosparam> 加载的参数路径
+    ros::NodeHandle nh("~"); // 使用私有命名空间，匹配 launch 文件中 <rosparam> 加载的参数路径
 
     ROS_INFO("CylinderFittingROS node started, waiting for filtered point clouds and main control commands...");
     CylinderFittingROS node(nh);

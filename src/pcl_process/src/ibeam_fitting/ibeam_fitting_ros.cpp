@@ -64,13 +64,19 @@ void IBeamFittingROS::loadParams() {
     fitter_->setParams(params);
 
     ROS_INFO("Detection params loaded (all %d parameters):", 37);
-    ROS_INFO("  [Spatial]  Distance: [%.1f, %.1f] m, Min height: %.1f m", params.min_distance, params.max_distance, params.min_height);
-    ROS_INFO("  [Preprocess]  Voxel: %.3f, SOR neighbors: %d, SOR std: %.2f", params.voxel_size, params.sor_neighbors, params.sor_std_ratio);
-    ROS_INFO("  [Wall]  Threshold: %.3f, Min points: %d, Max iters: %d", params.wall_distance_threshold, params.min_wall_points, params.max_wall_iterations);
+    ROS_INFO("  [Spatial]  Distance: [%.1f, %.1f] m, Min height: %.1f m", params.min_distance, params.max_distance,
+             params.min_height);
+    ROS_INFO("  [Preprocess]  Voxel: %.3f, SOR neighbors: %d, SOR std: %.2f", params.voxel_size, params.sor_neighbors,
+             params.sor_std_ratio);
+    ROS_INFO("  [Wall]  Threshold: %.3f, Min points: %d, Max iters: %d", params.wall_distance_threshold,
+             params.min_wall_points, params.max_wall_iterations);
     ROS_INFO("  [Cluster]  Tolerance: %.3f, Min size: %d", params.cluster_tolerance, params.min_cluster_size);
-    ROS_INFO("  [IBeam]  Linearity: %.2f, Length: %.1f, Aspect: %.1f, AxisZ: %.2f", params.min_linearity, params.min_length, params.min_aspect_ratio, params.max_axis_z);
-    ROS_INFO("  [IBeam]  Width: [%.2f, %.2f], Thickness: [%.3f, %.2f]", params.min_width, params.max_width, params.min_thickness, params.max_thickness);
-    ROS_INFO("  [Refine]  V-span: [%.2f, %.2f], W-span: [%.2f, %.2f]", params.refine_min_v_span, params.refine_max_v_span, params.refine_min_w_span, params.refine_max_w_span);
+    ROS_INFO("  [IBeam]  Linearity: %.2f, Length: %.1f, Aspect: %.1f, AxisZ: %.2f", params.min_linearity,
+             params.min_length, params.min_aspect_ratio, params.max_axis_z);
+    ROS_INFO("  [IBeam]  Width: [%.2f, %.2f], Thickness: [%.3f, %.2f]", params.min_width, params.max_width,
+             params.min_thickness, params.max_thickness);
+    ROS_INFO("  [Refine]  V-span: [%.2f, %.2f], W-span: [%.2f, %.2f]", params.refine_min_v_span,
+             params.refine_max_v_span, params.refine_min_w_span, params.refine_max_w_span);
     ROS_INFO("  [Trim]  Outlier: %.2f, V-shift: %.3f, W-shift: %.3f, Aspect: %.2f, Density: [%.2f, %.2f], Score: %.2f",
              params.trim_outlier_ratio, params.trim_v_shift_threshold, params.trim_w_shift_threshold,
              params.trim_aspect_diff_ratio, params.trim_density_ratio_low, params.trim_density_ratio_high,
@@ -180,17 +186,43 @@ void IBeamFittingROS::setOption(const float distance, const float step_height, c
 /// @brief 主控命令订阅回调
 /// @param msg
 void IBeamFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
-    bool prev = processing_.load(std::memory_order_acquire);
-    bool next = msg->data;
-    if (prev == next) {
+    bool prev_cmd = achieve_work_pose_.load(std::memory_order_acquire);
+    bool next_cmd = msg->data;
+    if (prev_cmd == next_cmd) {
         return;
     }
-    if (next) {
+    achieve_work_pose_.store(next_cmd, std::memory_order_release);
+
+    bool should_process = next_cmd && (getCurrentWorkObject() == "C");
+    bool was_processing = processing_.load(std::memory_order_acquire);
+    if (should_process && !was_processing) {
         ROS_WARN("=== Main control command: START I-beam fitting ===");
         processing_.store(true, std::memory_order_release);
-    } else {
+    } else if (!should_process && was_processing) {
         ROS_WARN("=== Main control command: STOP I-beam fitting ===");
         processing_.store(false, std::memory_order_release);
+    }
+}
+
+void IBeamFittingROS::workingObjectCallback(const std_msgs::String::ConstPtr &msg) {
+    std::string new_object = msg->data;
+    if (new_object != current_work_object_) {
+        ROS_WARN("Received new working object: %s (previous: %s)", new_object.c_str(), current_work_object_.c_str());
+        current_work_object_ = new_object;
+
+        // 工作对象切换时，根据 achieve_work_pose_ 联动更新 processing_ 状态
+        bool cmd_active = achieve_work_pose_.load(std::memory_order_acquire);
+        bool should_process = cmd_active && (new_object == "C");
+        bool was_processing = processing_.load(std::memory_order_acquire);
+        if (should_process && !was_processing) {
+            ROS_WARN("=== Work object switched to C while active: START I-beam fitting ===");
+            processing_.store(true, std::memory_order_release);
+        } else if (!should_process && was_processing) {
+            ROS_WARN("=== Work object switched away from C while active: STOP I-beam fitting ===");
+            processing_.store(false, std::memory_order_release);
+        }
+    } else {
+        ROS_DEBUG("Received working object: %s (unchanged)", new_object.c_str());
     }
 }
 

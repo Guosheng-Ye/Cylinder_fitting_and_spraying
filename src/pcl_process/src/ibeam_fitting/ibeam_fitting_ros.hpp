@@ -9,6 +9,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/Float64.h>
+#include <std_msgs/String.h>
 
 #include <dynamic_reconfigure/server.h>
 #include <pcl_process/IBeamDetectionConfig.h>
@@ -31,13 +32,17 @@ public:
         loadParams();
         ROS_INFO("IBeamFittingROS parameters loaded.");
 
+        // 订阅工作对象 /work_object
+        work_object_sub_ = nh.subscribe("/work_object", 10, &IBeamFittingROS::workingObjectCallback, this);
+        ROS_INFO("IBeamFittingROS: Subscribed to /work_object");
+
         // 订阅过滤后的雷达数据 /rslidar_filtered_ibeam
         lidar_data_sub_ = nh_.subscribe("/rslidar_filtered_ibeam", 1, &IBeamFittingROS::cloudCallback, this);
         ROS_INFO("IBeamFittingROS: Subscribed to /rslidar_filtered_ibeam");
 
-        // 订阅主控命令 /achieve_ibeam_work
-        main_ctl_sub_ = nh_.subscribe("/achieve_ibeam_work", 10, &IBeamFittingROS::mainCtlCallback, this);
-        ROS_INFO("IBeamFittingROS: Subscribed to /achieve_ibeam_work");
+        // 订阅主控命令 /achieve_work_pose
+        main_ctl_sub_ = nh_.subscribe("/achieve_work_pose", 10, &IBeamFittingROS::mainCtlCallback, this);
+        ROS_INFO("IBeamFittingROS: Subscribed to /achieve_work_pose");
 
         // 订阅工艺参数 /ibeam_process_param_bridge
         process_param_sub_ =
@@ -52,25 +57,26 @@ public:
         target_pose_pub_ = nh_.advertise<pcl_process::TargetPoseList>("/target_pose_list", 10, true);
         ROS_INFO("IBeamFittingROS: Ready to publish target pose list...");
 
-        // 发布喷涂作业目标位姿 /spray_target_pose
-        spray_target_pose_pub_ = nh_.advertise<pcl_process::IBeamTargetInfo>("/spray_target_pose", 10, true);
-        ROS_INFO("IBeamFittingROS: Ready to publish spray target pose...");
+        // 发布喷涂作业目标位姿 /ibeam_target_info
+        spray_target_pose_pub_ = nh_.advertise<pcl_process::IBeamTargetInfo>("/ibeam_target_info", 10, true);
+        ROS_INFO("IBeamFittingROS: Ready to publish ibeam target info...");
 
         // 初始化 dynamic_reconfigure 服务器（自动触发一次回调加载初始参数）
         dyn_reconf_server_ = std::make_shared<dynamic_reconfigure::Server<pcl_process::IBeamDetectionConfig>>(nh_);
-        dyn_reconf_server_->setCallback(
-            boost::bind(&IBeamFittingROS::dynamicReconfigureCallback, this, _1, _2));
+        dyn_reconf_server_->setCallback(boost::bind(&IBeamFittingROS::dynamicReconfigureCallback, this, _1, _2));
         ROS_INFO("IBeamFittingROS: dynamic_reconfigure server initialized.");
     }
 
 public:
-    void setOption(const float distance, const float step_height, const float step_length, const float lap,
-                   const float arm_reach, const int mode_length, const float length, const int mode_theta,
-                   const float theta);
+    void        setOption(const float distance, const float step_height, const float step_length, const float lap,
+                          const float arm_reach, const int mode_length, const float length, const int mode_theta,
+                          const float theta);
+    std::string getCurrentWorkObject() const { return current_work_object_; }
 
 private:
     // 主控命令回调函数
     void mainCtlCallback(const std_msgs::Bool::ConstPtr &msg);
+    void workingObjectCallback(const std_msgs::String::ConstPtr &msg);
     // 回调函数
     void cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
     void ibeamProcessParamCallback(const pcl_process::IBeamProcessParam::ConstPtr &msg);
@@ -82,13 +88,15 @@ private:
     void dynamicReconfigureCallback(pcl_process::IBeamDetectionConfig &config, uint32_t level);
 
     // 生成基座作业点
-    void generateTargetPoses(const IBeamOutputs& outputs);
+    void generateTargetPoses(const IBeamOutputs &outputs);
 
     ros::NodeHandle   nh_;
+    ros::Subscriber   work_object_sub_;   // 订阅工作对象 A 圆柱 B 细圆柱 C 工字钢
     ros::Subscriber   lidar_data_sub_;    // 订阅过滤后的雷达数据
     ros::Subscriber   main_ctl_sub_;      // 订阅主控命令
     ros::Subscriber   process_param_sub_; // 订阅工艺参数
     std::atomic<bool> processing_{false};
+    std::atomic<bool> achieve_work_pose_{false}; // 原始主控命令状态
 
     ros::Publisher process_param_pub_;     // 发布工艺参数
     ros::Publisher target_pose_pub_;       // 发布目标位姿列表
@@ -110,6 +118,9 @@ private:
     double last_length_      = -1.0;
     int    last_mode_theta_  = -1;
     double last_theta_       = -1.0;
+
+    // 当前工作对象（由 /work_object 发布） "A" "B" "C" 等
+    std::string current_work_object_{"O"}; // A 圆柱 B 细圆柱 C 工字钢
 };
 
 #endif // IBEAM_FITTING_ROS_HPP
