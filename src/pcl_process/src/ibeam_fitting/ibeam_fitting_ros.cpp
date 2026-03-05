@@ -249,9 +249,10 @@ void IBeamFittingROS::ibeamProcessParamCallback(const pcl_process::IBeamProcessP
     int    mode_theta  = msg->mode_theta;
     double theta       = msg->theta;
 
-    bool changed = (distance != last_distance_) || (step_height != last_step_height_) ||
-                   (step_length != last_step_length_) || (lap != last_lap_) || (arm_reach != last_arm_reach_) ||
-                   (mode_length != last_mode_length_) || (length != last_length_) || (mode_theta != last_mode_theta_);
+    auto nanSafeNeq = [](double a, double b) { return std::isnan(a) ? !std::isnan(b) : (a != b); };
+    bool changed = (distance != last_distance_) || nanSafeNeq(step_height, last_step_height_) ||
+                   nanSafeNeq(step_length, last_step_length_) || (lap != last_lap_) || (arm_reach != last_arm_reach_) ||
+                   (mode_length != last_mode_length_) || nanSafeNeq(length, last_length_) || (mode_theta != last_mode_theta_);
     if (changed) {
         ROS_WARN("Process parameters changed: distance=%.2f (was %.2f), step_height=%.2f (was %.2f), step_length=%.2f "
                  "(was %.2f), lap=%.2f (was %.2f), arm_reach=%.2f (was %.2f), mode_length=%d (was %d), length=%.2f "
