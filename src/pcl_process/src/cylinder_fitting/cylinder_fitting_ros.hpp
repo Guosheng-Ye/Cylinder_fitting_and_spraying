@@ -129,7 +129,7 @@ private:
     void dynamicReconfigureCallback(pcl_process::CylinderDetectionConfig &config, uint32_t level);
     // 将缓存的模型参数 + 工艺参数合并后设置到 fitter
     void applyFittingParams();
-    // 根据工作对象名称切换参数预设 ("A" 或 "B")
+    // 根据工作对象名称切换参数预设 ("A" 或 "D")
     void switchPreset(const std::string &object);
 
 private:
@@ -152,7 +152,7 @@ private:
     // dynamic_reconfigure 服务器
     std::shared_ptr<dynamic_reconfigure::Server<pcl_process::CylinderDetectionConfig>> dyn_reconf_server_;
 
-    // 当前工作对象（由 /work_object 发布） "A" "B" "C" 等
+    // 当前工作对象（由 /work_object 发布） "A" "D" "C" 等
     std::string current_work_object_{"0"}; // 当前工作对象 A 圆柱 D 细圆柱
     // 记录历史值（工艺参数，来自processParamsCallback）
     double last_distance_    = -1.0;

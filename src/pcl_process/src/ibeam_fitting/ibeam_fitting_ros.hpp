@@ -95,7 +95,7 @@ private:
     void generateTargetPoses(const IBeamOutputs &outputs);
 
     ros::NodeHandle   nh_;
-    ros::Subscriber   work_object_sub_;   // 订阅工作对象 A 圆柱 B 细圆柱 C 工字钢
+    ros::Subscriber   work_object_sub_;   // 订阅工作对象 A 圆柱 D 细圆柱 C 工字钢
     ros::Subscriber   lidar_data_sub_;    // 订阅过滤后的雷达数据
     ros::Subscriber   main_ctl_sub_;      // 订阅主控命令
     ros::Subscriber   process_param_sub_; // 订阅工艺参数
@@ -124,8 +124,8 @@ private:
     int    last_mode_theta_  = -1;
     double last_theta_       = -1.0;
 
-    // 当前工作对象（由 /work_object 发布） "A" "B" "C" 等
-    std::string current_work_object_{"O"}; // A 圆柱 B 细圆柱 C 工字钢
+    // 当前工作对象（由 /work_object 发布） "A" "D" "C" 等
+    std::string current_work_object_{"O"}; // A 圆柱 D 细圆柱 C 工字钢
 };
 
 #endif // IBEAM_FITTING_ROS_HPP
