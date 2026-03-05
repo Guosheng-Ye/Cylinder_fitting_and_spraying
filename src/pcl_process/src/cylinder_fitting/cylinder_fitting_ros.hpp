@@ -129,6 +129,8 @@ private:
     void dynamicReconfigureCallback(pcl_process::CylinderDetectionConfig &config, uint32_t level);
     // 将缓存的模型参数 + 工艺参数合并后设置到 fitter
     void applyFittingParams();
+    // 根据工作对象名称切换参数预设 ("A" 或 "B")
+    void switchPreset(const std::string &object);
 
 private:
     ros::NodeHandle                 nh_;                // 节点句柄

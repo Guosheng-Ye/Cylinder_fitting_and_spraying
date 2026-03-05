@@ -4,9 +4,101 @@
 # 说明: 所有参数均可通过此文件修改，无需重新编译
 #       运行时也可通过 rqt_reconfigure 动态调整
 # 用法: roslaunch pcl_process cylinder_fitting.launch
+#
+# 多场景切换说明:
+#   /work_object = "A" → 自动加载 preset_A (粗竖直圆柱)
+#   /work_object = "B" → 自动加载 preset_B (细长倾斜圆柱)
+#   节点启动时以 preset_A 为默认值
+# ============================================================================
 
+# ============================================================================
+# Preset A: 粗竖直圆柱 (标准场景)
+# ============================================================================
+preset_A:
+  virtual_base_to_surface:  600.0
 
-# # ========== 虚拟原点参数 ==========
+  min_inliers:        300
+  max_inliers:        600
+  min_inlier_ratio:   0.02
+  max_inlier_ratio:   0.50
+  min_height_m:       1.00
+  min_radius_m:       0.30
+  max_radius_m:       0.40
+  min_radial_rel_std: 0.00
+  max_radial_rel_std: 0.15
+
+  ransac_axis_x:            0.0
+  ransac_axis_y:            0.0
+  ransac_axis_z:            1.0
+  eps_angle_deg:            15.0
+
+  normal_distance_weight:      0.05
+  ransac_max_iterations:       20000
+  ransac_distance_threshold:   0.015
+
+  max_radial_range_ratio:   0.30
+  min_aspect_ratio:         1.5
+  min_circularity:          0.15
+
+  normal_k_search:          30
+
+  wall_angle_threshold:     20.0
+  wall_distance_threshold:  0.02
+  wall_max_iterations:      5000
+  max_walls:                3
+  wall_min_plane_points:    100
+  wall_min_keep_ratio:      0.10
+
+  use_ideal_axis:           true
+  axis_angle_threshold_deg: 15.0
+
+# ============================================================================
+# Preset B: 细长倾斜圆柱 (~45°, R≈89mm, H≈5.6m)
+# 离线分析基准: 轴向[0.7045,-0.0127,0.7096], 中心[-1.98,4.64,3.81]
+# ============================================================================
+preset_B:
+  virtual_base_to_surface:  600.0
+
+  min_inliers:        30
+  max_inliers:        1000
+  min_inlier_ratio:   0.005
+  max_inlier_ratio:   0.60
+  min_height_m:       0.50
+  min_radius_m:       0.04
+  max_radius_m:       0.18
+  min_radial_rel_std: 0.00
+  max_radial_rel_std: 0.30
+
+  ransac_axis_x:            0.707
+  ransac_axis_y:            0.0
+  ransac_axis_z:            0.707
+  eps_angle_deg:            20.0
+
+  normal_distance_weight:      0.05
+  ransac_max_iterations:       150000
+  ransac_distance_threshold:   0.025
+
+  max_radial_range_ratio:   1.80
+  min_aspect_ratio:         3.0
+  min_circularity:          0.20
+
+  normal_k_search:          20
+
+  wall_angle_threshold:     20.0
+  wall_distance_threshold:  0.02
+  wall_max_iterations:      5000
+  max_walls:                3
+  wall_min_plane_points:    100
+  wall_min_keep_ratio:      0.10
+
+  use_ideal_axis:           false
+  axis_angle_threshold_deg: 50.0
+
+# ============================================================================
+# 以下为节点启动时的顶层默认值（与 preset_A 一致），供 dynamic_reconfigure 初始化使用
+# ============================================================================
+
+# ========== 虚拟原点参数 ==========
 virtual_base_to_surface:  600.0  # 虚拟原点到圆柱表面的距离 (mm)
 
 # # ========== 竖直圆柱模型拟合参数 ==========
