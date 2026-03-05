@@ -20,3 +20,6 @@ src/pcl_process/src/cylinder_fitting/__pycache__/cylinder_yaml_den.cpython-39.py
 src/pcl_process/src/cylinder_fitting/__pycache__/cylinder_yaml_den.cpython-313.pyc
 src/pcl_process/src/cylinder_fitting/recommended_cylinder_params.yaml
 src/pcl_process/src/ibeam_fitting/log.txt
+src/pcl_process/src/cylinder_fitting/out_res.txt
+src/pcl_process/src/cylinder_fitting/cylinder_fit_result.png
+src/pcl_process/src/cylinder_fitting/113.pcd
