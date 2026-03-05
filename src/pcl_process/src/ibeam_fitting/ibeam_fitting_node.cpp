@@ -191,8 +191,8 @@ bool IBeamFitter::detect() {
 
                 if (width < 0.50 && wh_ratio >= 0.5 && wh_ratio <= 3.0) {
                     // 原始截面尺寸合理，直接使用
-                    std::cout << "       精细化失败, 但原始截面尺寸合理(W=" << width
-                              << "m, W/H=" << wh_ratio << "), 使用原始结果" << std::endl;
+                    std::cout << "       精细化失败, 但原始截面尺寸合理(W=" << width << "m, W/H=" << wh_ratio
+                              << "), 使用原始结果" << std::endl;
 
                     IBeamResult result;
                     result.id                   = results_.size() + 1;
@@ -209,9 +209,8 @@ bool IBeamFitter::detect() {
                     results_.push_back(result);
                 } else {
                     // 宽度异常大说明混入了非工字钢结构，拒绝该聚类
-                    std::cout << "       精细化失败, 原始截面宽度异常(W=" << width
-                              << "m, H=" << thickness << "m, W/H=" << wh_ratio
-                              << "), 拒绝该聚类(可能包含支架/连接件)" << std::endl;
+                    std::cout << "       精细化失败, 原始截面宽度异常(W=" << width << "m, H=" << thickness
+                              << "m, W/H=" << wh_ratio << "), 拒绝该聚类(可能包含支架/连接件)" << std::endl;
                 }
             }
         } else {
@@ -528,8 +527,10 @@ std::vector<int> IBeamFitter::mergeIBeamClusters(const pcl::PointCloud<pcl::Poin
                 Eigen::Vector3d avg_axis = (info_i.main_axis + info_j.main_axis).normalized();
                 Eigen::Vector3d w_up(0, 0, 1);
                 Eigen::Vector3d v_perp = w_up.cross(avg_axis);
-                if (v_perp.norm() > 0.1) v_perp.normalize();
-                else v_perp = Eigen::Vector3d(0, 1, 0);
+                if (v_perp.norm() > 0.1)
+                    v_perp.normalize();
+                else
+                    v_perp = Eigen::Vector3d(0, 1, 0);
 
                 // 计算聚类 i 的截面跨度
                 double i_v_min = 1e9, i_v_max = -1e9, i_w_min = 1e9, i_w_max = -1e9;
@@ -540,16 +541,20 @@ std::vector<int> IBeamFitter::mergeIBeamClusters(const pcl::PointCloud<pcl::Poin
                         Eigen::Vector3d p(cloud->points[idx].x - info_i.center[0],
                                           cloud->points[idx].y - info_i.center[1],
                                           cloud->points[idx].z - info_i.center[2]);
-                        double pv = p.dot(v_perp), pw = p.dot(w_up);
-                        i_v_min = std::min(i_v_min, pv); i_v_max = std::max(i_v_max, pv);
-                        i_w_min = std::min(i_w_min, pw); i_w_max = std::max(i_w_max, pw);
+                        double          pv = p.dot(v_perp), pw = p.dot(w_up);
+                        i_v_min = std::min(i_v_min, pv);
+                        i_v_max = std::max(i_v_max, pv);
+                        i_w_min = std::min(i_w_min, pw);
+                        i_w_max = std::max(i_w_max, pw);
                     } else if (labels[idx] == j) {
                         Eigen::Vector3d p(cloud->points[idx].x - info_j.center[0],
                                           cloud->points[idx].y - info_j.center[1],
                                           cloud->points[idx].z - info_j.center[2]);
-                        double pv = p.dot(v_perp), pw = p.dot(w_up);
-                        j_v_min = std::min(j_v_min, pv); j_v_max = std::max(j_v_max, pv);
-                        j_w_min = std::min(j_w_min, pw); j_w_max = std::max(j_w_max, pw);
+                        double          pv = p.dot(v_perp), pw = p.dot(w_up);
+                        j_v_min = std::min(j_v_min, pv);
+                        j_v_max = std::max(j_v_max, pv);
+                        j_w_min = std::min(j_w_min, pw);
+                        j_w_max = std::max(j_w_max, pw);
                     }
                 }
 
@@ -563,8 +568,8 @@ std::vector<int> IBeamFitter::mergeIBeamClusters(const pcl::PointCloud<pcl::Poin
                 double w_ratio = std::max(i_w_span, j_w_span) / std::max(std::min(i_w_span, j_w_span), 0.01);
 
                 if (v_ratio > 2.0 || w_ratio > 2.0) {
-                    std::cout << "  -> 拒绝合并 #" << i << " 和 #" << j
-                              << ": 截面尺寸不兼容 (v比=" << v_ratio << ", w比=" << w_ratio << ")" << std::endl;
+                    std::cout << "  -> 拒绝合并 #" << i << " 和 #" << j << ": 截面尺寸不兼容 (v比=" << v_ratio
+                              << ", w比=" << w_ratio << ")" << std::endl;
                     continue;
                 }
             }
@@ -1134,20 +1139,18 @@ static bool verifyIBeamCrossSection(const pcl::PointCloud<pcl::PointXYZ>::Ptr &c
 // 单切片工字钢截面评分 - 检查某一段切片是否具有工字钢的双翼缘分布特征
 // 返回: 0.0~1.0 的置信度分数, 越高越像 H 型截面
 // ============================================================================
-static float computeSliceIBeamScore(const std::vector<float> &slice_v,
-                                     const std::vector<float> &slice_w,
-                                     int histogram_bins = 25)
-{
+static float computeSliceIBeamScore(const std::vector<float> &slice_v, const std::vector<float> &slice_w,
+                                    int histogram_bins = 25) {
     if (slice_v.size() < 8) return 0.0f;
 
-    float v_min = *std::min_element(slice_v.begin(), slice_v.end());
-    float v_max = *std::max_element(slice_v.begin(), slice_v.end());
+    float v_min  = *std::min_element(slice_v.begin(), slice_v.end());
+    float v_max  = *std::max_element(slice_v.begin(), slice_v.end());
     float v_span = v_max - v_min;
     if (v_span < 0.03f) return 0.0f;
 
     // 构建 v 方向直方图
     std::vector<int> hist(histogram_bins, 0);
-    float step = v_span / histogram_bins;
+    float            step = v_span / histogram_bins;
     for (float v : slice_v) {
         int idx = std::min(histogram_bins - 1, int((v - v_min) / step));
         hist[idx]++;
@@ -1157,18 +1160,17 @@ static float computeSliceIBeamScore(const std::vector<float> &slice_v,
     std::vector<float> smooth(histogram_bins, 0);
     for (int i = 1; i < histogram_bins - 1; i++)
         smooth[i] = (hist[i - 1] + hist[i] + hist[i + 1]) / 3.0f;
-    smooth[0] = (hist[0] + hist[1]) / 2.0f;
+    smooth[0]                  = (hist[0] + hist[1]) / 2.0f;
     smooth[histogram_bins - 1] = (hist[histogram_bins - 2] + hist[histogram_bins - 1]) / 2.0f;
 
     float max_val = *std::max_element(smooth.begin(), smooth.end());
     if (max_val < 1.0f) return 0.0f;
 
-    float peak_thresh = max_val * 0.25f;
+    float            peak_thresh = max_val * 0.25f;
     std::vector<int> peaks;
     for (int i = 1; i < histogram_bins - 1; i++) {
         if (smooth[i] > peak_thresh && smooth[i] >= smooth[i - 1] && smooth[i] >= smooth[i + 1]) {
-            if (peaks.empty() || i - peaks.back() > 2)
-                peaks.push_back(i);
+            if (peaks.empty() || i - peaks.back() > 2) peaks.push_back(i);
         }
     }
 
@@ -1523,21 +1525,21 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
     // 目的：过滤被错误包含的支架、连接件、噪声等非工字钢结构
     // ============================================================================
     {
-        double min_u_shape = *std::min_element(refined_local_u.begin(), refined_local_u.end());
-        double max_u_shape = *std::max_element(refined_local_u.begin(), refined_local_u.end());
+        double min_u_shape  = *std::min_element(refined_local_u.begin(), refined_local_u.end());
+        double max_u_shape  = *std::max_element(refined_local_u.begin(), refined_local_u.end());
         double length_shape = max_u_shape - min_u_shape;
 
         if (length_shape > 0.5 && refined_cloud->size() >= 50) {
             const int num_shape_slices = std::max(8, static_cast<int>(length_shape / 0.10));
-            double shape_slice_len = length_shape / num_shape_slices;
+            double    shape_slice_len  = length_shape / num_shape_slices;
 
             struct ShapeSliceInfo {
-                double ibeam_score;      // H型截面置信度
-                double v_center;         // v方向中心
-                double w_center;         // w方向中心
+                double ibeam_score; // H型截面置信度
+                double v_center;    // v方向中心
+                double w_center;    // w方向中心
                 double v_span;
                 double w_span;
-                double aspect_ratio;     // v_span / w_span
+                double aspect_ratio; // v_span / w_span
                 int    point_count;
             };
 
@@ -1545,7 +1547,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
 
             for (int s = 0; s < num_shape_slices; ++s) {
                 double s_start = min_u_shape + s * shape_slice_len;
-                double s_end = s_start + shape_slice_len;
+                double s_end   = s_start + shape_slice_len;
 
                 std::vector<float> sv, sw;
                 for (size_t j = 0; j < refined_local_u.size(); ++j) {
@@ -1557,16 +1559,16 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
 
                 shape_slices[s].point_count = static_cast<int>(sv.size());
                 if (sv.size() >= 5) {
-                    float sv_min = *std::min_element(sv.begin(), sv.end());
-                    float sv_max = *std::max_element(sv.begin(), sv.end());
-                    float sw_min = *std::min_element(sw.begin(), sw.end());
-                    float sw_max = *std::max_element(sw.begin(), sw.end());
-                    shape_slices[s].v_span = sv_max - sv_min;
-                    shape_slices[s].w_span = sw_max - sw_min;
-                    shape_slices[s].v_center = (sv_max + sv_min) / 2.0;
-                    shape_slices[s].w_center = (sw_max + sw_min) / 2.0;
+                    float sv_min                 = *std::min_element(sv.begin(), sv.end());
+                    float sv_max                 = *std::max_element(sv.begin(), sv.end());
+                    float sw_min                 = *std::min_element(sw.begin(), sw.end());
+                    float sw_max                 = *std::max_element(sw.begin(), sw.end());
+                    shape_slices[s].v_span       = sv_max - sv_min;
+                    shape_slices[s].w_span       = sw_max - sw_min;
+                    shape_slices[s].v_center     = (sv_max + sv_min) / 2.0;
+                    shape_slices[s].w_center     = (sw_max + sw_min) / 2.0;
                     shape_slices[s].aspect_ratio = shape_slices[s].v_span / std::max(shape_slices[s].w_span, 0.01);
-                    shape_slices[s].ibeam_score = computeSliceIBeamScore(sv, sw);
+                    shape_slices[s].ibeam_score  = computeSliceIBeamScore(sv, sw);
                 } else {
                     shape_slices[s] = {0, 0, 0, 0, 0, 0, shape_slices[s].point_count};
                 }
@@ -1574,7 +1576,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
 
             // 计算中间段（排除两端各25%）作为参考基准
             int ref_start = num_shape_slices / 4;
-            int ref_end = num_shape_slices - num_shape_slices / 4;
+            int ref_end   = num_shape_slices - num_shape_slices / 4;
 
             std::vector<double> ref_scores, ref_v_centers, ref_w_centers, ref_aspects, ref_densities;
             for (int s = ref_start; s < ref_end; ++s) {
@@ -1594,42 +1596,41 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                 std::sort(ref_aspects.begin(), ref_aspects.end());
                 std::sort(ref_densities.begin(), ref_densities.end());
 
-                double ref_score_med = ref_scores[ref_scores.size() / 2];
-                double ref_v_med = ref_v_centers[ref_v_centers.size() / 2];
-                double ref_w_med = ref_w_centers[ref_w_centers.size() / 2];
-                double ref_aspect_med = ref_aspects[ref_aspects.size() / 2];
+                double ref_score_med   = ref_scores[ref_scores.size() / 2];
+                double ref_v_med       = ref_v_centers[ref_v_centers.size() / 2];
+                double ref_w_med       = ref_w_centers[ref_w_centers.size() / 2];
+                double ref_aspect_med  = ref_aspects[ref_aspects.size() / 2];
                 double ref_density_med = ref_densities[ref_densities.size() / 2];
 
-                std::cout << "       截面形状一致性: 参考H型分数=" << ref_score_med
-                          << ", v_center=" << ref_v_med
-                          << ", w_center=" << ref_w_med
-                          << ", 长宽比=" << ref_aspect_med << std::endl;
+                std::cout << "       截面形状一致性: 参考H型分数=" << ref_score_med << ", v_center=" << ref_v_med
+                          << ", w_center=" << ref_w_med << ", 长宽比=" << ref_aspect_med << std::endl;
 
                 // 端部异常判定函数
                 auto isSliceAbnormal = [&](int s) -> std::pair<bool, std::string> {
                     if (shape_slices[s].point_count < 3) return {false, ""};
-                    bool bad = false;
+                    bool        bad = false;
                     std::string reason;
 
                     // 条件1: H型截面分数远低于中间段参考值
                     // 条件1: H型截面分数远低于中间段参考值
-                    if (ref_score_med > 0.2 && shape_slices[s].ibeam_score < ref_score_med * detection_params_.trim_score_ratio) {
+                    if (ref_score_med > 0.2 &&
+                        shape_slices[s].ibeam_score < ref_score_med * detection_params_.trim_score_ratio) {
                         bad = true;
-                        reason += "H分数低(" + std::to_string(shape_slices[s].ibeam_score).substr(0,4) + ")";
+                        reason += "H分数低(" + std::to_string(shape_slices[s].ibeam_score).substr(0, 4) + ")";
                     }
 
                     // 条件2: v方向中心偏移过大（侧向偏移，可能是支架/连接件）
                     double v_shift = std::abs(shape_slices[s].v_center - ref_v_med);
                     if (v_shift > detection_params_.trim_v_shift_threshold) {
                         bad = true;
-                        reason += " v偏移=" + std::to_string(v_shift).substr(0,5);
+                        reason += " v偏移=" + std::to_string(v_shift).substr(0, 5);
                     }
 
                     // 条件3: w方向中心偏移过大（高度偏移）
                     double w_shift = std::abs(shape_slices[s].w_center - ref_w_med);
                     if (w_shift > detection_params_.trim_w_shift_threshold) {
                         bad = true;
-                        reason += " w偏移=" + std::to_string(w_shift).substr(0,5);
+                        reason += " w偏移=" + std::to_string(w_shift).substr(0, 5);
                     }
 
                     // 条件4: 截面长宽比与参考段差异超过阈值
@@ -1637,16 +1638,17 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                         double aspect_diff = std::abs(shape_slices[s].aspect_ratio - ref_aspect_med) / ref_aspect_med;
                         if (aspect_diff > detection_params_.trim_aspect_diff_ratio) {
                             bad = true;
-                            reason += " 长宽比偏差=" + std::to_string(aspect_diff).substr(0,4);
+                            reason += " 长宽比偏差=" + std::to_string(aspect_diff).substr(0, 4);
                         }
                     }
 
                     // 条件5: 点密度异常（过高=密集连接件, 过低=稀疏噪声）
                     if (ref_density_med > 5) {
                         double density_ratio = shape_slices[s].point_count / ref_density_med;
-                        if (density_ratio > detection_params_.trim_density_ratio_high || density_ratio < detection_params_.trim_density_ratio_low) {
+                        if (density_ratio > detection_params_.trim_density_ratio_high ||
+                            density_ratio < detection_params_.trim_density_ratio_low) {
                             bad = true;
-                            reason += " 密度比=" + std::to_string(density_ratio).substr(0,4);
+                            reason += " 密度比=" + std::to_string(density_ratio).substr(0, 4);
                         }
                     }
 
@@ -1685,7 +1687,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                     double new_u_max_s = min_u_shape + right_shape_trim * shape_slice_len;
 
                     pcl::PointCloud<pcl::PointXYZ>::Ptr shape_trimmed(new pcl::PointCloud<pcl::PointXYZ>);
-                    std::vector<double> st_u, st_v, st_w;
+                    std::vector<double>                 st_u, st_v, st_w;
 
                     for (size_t i = 0; i < refined_cloud->size(); ++i) {
                         if (refined_local_u[i] >= new_u_min_s && refined_local_u[i] <= new_u_max_s) {
@@ -1701,12 +1703,12 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                               << (num_shape_slices - right_shape_trim) << "片)" << std::endl;
 
                     if (shape_trimmed->size() >= 40) {
-                        refined_cloud = shape_trimmed;
-                        refined_cloud->width = refined_cloud->size();
+                        refined_cloud         = shape_trimmed;
+                        refined_cloud->width  = refined_cloud->size();
                         refined_cloud->height = 1;
-                        refined_local_u = st_u;
-                        refined_local_v = st_v;
-                        refined_local_w = st_w;
+                        refined_local_u       = st_u;
+                        refined_local_v       = st_v;
+                        refined_local_w       = st_w;
                     } else {
                         std::cout << "       截面一致性裁剪: 裁剪后点数不足，保持原样" << std::endl;
                     }
@@ -1772,7 +1774,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
             // 构建左段和右段
             pcl::PointCloud<pcl::PointXYZ>::Ptr left_seg(new pcl::PointCloud<pcl::PointXYZ>);
             pcl::PointCloud<pcl::PointXYZ>::Ptr right_seg(new pcl::PointCloud<pcl::PointXYZ>);
-            std::vector<double> left_u, left_v, left_w, right_u, right_v, right_w;
+            std::vector<double>                 left_u, left_v, left_w, right_u, right_v, right_w;
 
             for (size_t i = 0; i < gap_pos; ++i) {
                 size_t idx = projections[i].second;
@@ -1793,10 +1795,8 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                       << " 点 (间隙=" << max_gap << "m)" << std::endl;
 
             // 对两段分别评估工字钢特征（连续性+结构+尺寸）
-            auto evaluateSegment = [&](const pcl::PointCloud<pcl::PointXYZ>::Ptr &seg,
-                                       const std::vector<double> &su,
-                                       const std::vector<double> &sv,
-                                       const std::vector<double> &sw,
+            auto evaluateSegment = [&](const pcl::PointCloud<pcl::PointXYZ>::Ptr &seg, const std::vector<double> &su,
+                                       const std::vector<double> &sv, const std::vector<double> &sw,
                                        const std::string &name) -> int {
                 if (seg->size() < 30) return 0;
                 int score = 0;
@@ -1816,11 +1816,10 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                     double s_vsp = *std::max_element(sv.begin(), sv.end()) - *std::min_element(sv.begin(), sv.end());
                     double s_wsp = *std::max_element(sw.begin(), sw.end()) - *std::min_element(sw.begin(), sw.end());
                     // 工字钢截面典型范围: 翼缘方向0.03-0.40m, 高度方向0.08-0.55m
-                    bool dim_ok = s_len > 0.5 && s_vsp >= 0.03 && s_vsp <= 0.40
-                                  && s_wsp >= 0.05 && s_wsp <= 0.55;
+                    bool dim_ok = s_len > 0.5 && s_vsp >= 0.03 && s_vsp <= 0.40 && s_wsp >= 0.05 && s_wsp <= 0.55;
                     if (dim_ok) score += 1;
-                    std::cout << "       分割评估 " << name << ": 工字钢评分=" << score
-                              << "/6 (L=" << s_len << ", V=" << s_vsp << ", W=" << s_wsp << ")" << std::endl;
+                    std::cout << "       分割评估 " << name << ": 工字钢评分=" << score << "/6 (L=" << s_len
+                              << ", V=" << s_vsp << ", W=" << s_wsp << ")" << std::endl;
                 } else {
                     std::cout << "       分割评估 " << name << ": 工字钢评分=" << score << "/6" << std::endl;
                 }
@@ -1831,7 +1830,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
             int right_score = evaluateSegment(right_seg, right_u, right_v, right_w, "右段");
 
             pcl::PointCloud<pcl::PointXYZ>::Ptr segment(new pcl::PointCloud<pcl::PointXYZ>);
-            std::vector<double> seg_u, seg_v, seg_w;
+            std::vector<double>                 seg_u, seg_v, seg_w;
 
             // 选择评分更高的段；若评分相同则取较大段
             bool pick_left = false;
@@ -1849,11 +1848,19 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
             }
 
             if (pick_left) {
-                segment = left_seg; seg_u = left_u; seg_v = left_v; seg_w = left_w;
-                std::cout << "       分割: 选择左段 " << segment->size() << " 点 (评分" << left_score << ")" << std::endl;
+                segment = left_seg;
+                seg_u   = left_u;
+                seg_v   = left_v;
+                seg_w   = left_w;
+                std::cout << "       分割: 选择左段 " << segment->size() << " 点 (评分" << left_score << ")"
+                          << std::endl;
             } else {
-                segment = right_seg; seg_u = right_u; seg_v = right_v; seg_w = right_w;
-                std::cout << "       分割: 选择右段 " << segment->size() << " 点 (评分" << right_score << ")" << std::endl;
+                segment = right_seg;
+                seg_u   = right_u;
+                seg_v   = right_v;
+                seg_w   = right_w;
+                std::cout << "       分割: 选择右段 " << segment->size() << " 点 (评分" << right_score << ")"
+                          << std::endl;
             }
 
             // 更新数据
@@ -1894,7 +1901,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
     // 注意：单视点激光雷达只能扫描到工字钢面向传感器的一侧，
     // 因此双翼缘和对称截面检测可能对稀疏单视点数据不可靠。
     // 策略：结构检测作为优先验证，失败时用尺寸验证兜底。
-    bool flange_ok = hasDoubleFlangeStructure(refined_cloud, axis_f);
+    bool flange_ok  = hasDoubleFlangeStructure(refined_cloud, axis_f);
     bool section_ok = verifyIBeamCrossSection(refined_cloud, axis_f);
 
     if (flange_ok && section_ok) {
@@ -1910,19 +1917,17 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
         double final_aspect = final_length / std::max(final_width, 0.01);
 
         // 尺寸验证：精细化后的尺寸应符合工字钢的截面特征
-        bool dim_ok = final_length >= 0.8
-                      && final_width  >= 0.03 && final_width  <= 0.45
-                      && final_height >= 0.05 && final_height <= 0.60
-                      && final_aspect >= 2.0;
+        bool dim_ok = final_length >= 0.8 && final_width >= 0.03 && final_width <= 0.45 && final_height >= 0.05 &&
+                      final_height <= 0.60 && final_aspect >= 2.0;
 
         if (dim_ok) {
             std::cout << "       结构验证: 双翼缘/截面未通过(可能因单视点扫描), 尺寸验证通过"
-                      << " (L=" << final_length << ", V=" << final_width
-                      << ", W=" << final_height << ", AR=" << final_aspect << ")" << std::endl;
+                      << " (L=" << final_length << ", V=" << final_width << ", W=" << final_height
+                      << ", AR=" << final_aspect << ")" << std::endl;
         } else {
             std::cout << "       精细化失败: 结构验证和尺寸验证均未通过"
-                      << " (L=" << final_length << ", V=" << final_width
-                      << ", W=" << final_height << ", AR=" << final_aspect << ")" << std::endl;
+                      << " (L=" << final_length << ", V=" << final_width << ", W=" << final_height
+                      << ", AR=" << final_aspect << ")" << std::endl;
             return false;
         }
     }
@@ -2422,7 +2427,7 @@ bool IBeamFitter::updateOutputs(const IBeamInputs &inputs, const IBeamResult &be
                                    inputs.base_z_offset, // base_z_offset: 机械臂底座中心与腹板中心高度线的高度差
                                    error_msg);
     // 更新工字钢工作区域长度
-    //inputs.length = working_length; // 将计算得到的工作长度更新回输入参数，供后续使用
+    // inputs.length = working_length; // 将计算得到的工作长度更新回输入参数，供后续使用
     outputs.beam_length_of_working = working_length;
     ROS_INFO("[IBeamFitter::updateOutputs] Calculated working length: %.2fmm (Error: %s)", working_length,
              error_msg.empty() ? "None" : error_msg.c_str());
@@ -2629,9 +2634,11 @@ void IBeamFitter::sliceIBeam(const IBeamResult &beam_result, const IBeamOutputs 
 
     // 打印切片信息
     for (const auto &slice : slices_data_) {
-        ROS_INFO("  Slice #%d: center=(%.3f, %.3f, %.3f)m, size=%.1fx%.1fmm, layer=%d, row=%d", slice.id,
-                 slice.center_m[0], slice.center_m[1], slice.center_m[2], slice.slice_width_mm, slice.slice_height_mm,
-                 slice.layer_index, slice.row_index);
+        ROS_INFO("  Slice #%d: center=(%.3f, %.3f, %.3f)m, center_mm=(%.3f, %.3f, %.3f)mm, size=%.1fx%.1fmm, layer=%d, "
+                 "row=%d",
+                 slice.id, slice.center_m[0], slice.center_m[1], slice.center_m[2], slice.center_mm[0],
+                 slice.center_mm[1], slice.center_mm[2], slice.slice_width_mm, slice.slice_height_mm, slice.layer_index,
+                 slice.row_index);
     }
 }
 

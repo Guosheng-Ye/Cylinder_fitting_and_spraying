@@ -292,8 +292,8 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs &outputs) {
     ibeam_center[1] *= 1000.0;
     ibeam_center[2] *= 1000.0;
     Eigen::Vector3d ibeam_base = tf_lidar2_base_->to_base_from_lidar(ibeam_center);
-    ROS_INFO("[IBeamFittingROS] IBeam center: (%.2f, %.2f, %.2f) m in base frame", ibeam_base.x() / 1000.0,
-             ibeam_base.y() / 1000.0, ibeam_base.z() / 1000.0);
+    ROS_INFO("[IBeamFittingROS] IBeam center: (%.2f, %.2f, %.2f) mm in base frame", ibeam_base.x(), ibeam_base.y(),
+             ibeam_base.z());
 
     ROS_INFO("[IBeamFittingROS] Generating target poses for %zu slices (d_base=%.2f mm)", slices.size(), d_base);
 
@@ -345,13 +345,13 @@ void IBeamFittingROS::generateTargetPoses(const IBeamOutputs &outputs) {
 
         // 发布喷涂目标点信息 /ibeam_target_info
         spray_target_pose_pub_.publish(ti_msg);
-        ROS_WARN("[IBeamFittingROS] Published target info for slice_id %d: surface_point=(%.2f, %.2f, %.2f) "
-                 "m,work_point=(%.2f, %.2f, %.2f) m,"
+        ROS_WARN("[IBeamFittingROS] Published target info for slice_id %d: surface_point=(%.2f, %.2f, %.2f) mm, "
+                 "work_point=(%.2f, %.2f, %.2f) mm,"
                  "plane_coeffs=(%.3f, %.3f, %.3f, %.3f), main_axis=(%.2f, %.2f, %.2f),"
                  "slice_width=%.2f mm, slice_height=%.2f mm, wing_plate_width=%.2f",
-                 ti_msg.id, center_base.x() / 1000.0, center_base.y() / 1000.0, center_base.z() / 1000.0, pose.x,
-                 pose.y, pose.z, normal_base.x(), normal_base.y(), normal_base.z(), d_coeff, axis_base.x(),
-                 axis_base.y(), axis_base.z(), slice.slice_width_mm, slice.slice_height_mm, ti_msg.wing_plate_width);
+                 ti_msg.id, center_base.x(), center_base.y(), center_base.z(), pose.x, pose.y, pose.z, normal_base.x(),
+                 normal_base.y(), normal_base.z(), d_coeff, axis_base.x(), axis_base.y(), axis_base.z(),
+                 slice.slice_width_mm, slice.slice_height_mm, ti_msg.wing_plate_width);
     }
 
     // 发布 /target_pose_list
