@@ -153,7 +153,7 @@ private:
     std::shared_ptr<dynamic_reconfigure::Server<pcl_process::CylinderDetectionConfig>> dyn_reconf_server_;
 
     // 当前工作对象（由 /work_object 发布） "A" "B" "C" 等
-    std::string current_work_object_{"0"}; // 当前工作对象 A 圆柱 B 细圆柱
+    std::string current_work_object_{"0"}; // 当前工作对象 A 圆柱 D 细圆柱
     // 记录历史值（工艺参数，来自processParamsCallback）
     double last_distance_    = -1.0;
     double last_step_width_  = -1.0;

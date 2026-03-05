@@ -134,72 +134,71 @@ void CylinderFittingROS::loadParams() {
 void CylinderFittingROS::switchPreset(const std::string &object) {
     const std::string ns = "preset_" + object + "/"; // e.g. "preset_A/"
 
-    nh_.param<int>(ns + "min_inliers",    loaded_min_inliers_,    300);
-    nh_.param<int>(ns + "max_inliers",    loaded_max_inliers_,    600);
-    nh_.param<double>(ns + "min_inlier_ratio",   loaded_min_inlier_ratio_,  0.02);
-    nh_.param<double>(ns + "max_inlier_ratio",   loaded_max_inlier_ratio_,  0.50);
-    nh_.param<double>(ns + "min_height_m",       loaded_min_height_m_,      1.00);
-    nh_.param<double>(ns + "min_radius_m",       loaded_min_radius_m_,      0.30);
-    nh_.param<double>(ns + "max_radius_m",       loaded_max_radius_m_,      0.40);
+    nh_.param<int>(ns + "min_inliers", loaded_min_inliers_, 300);
+    nh_.param<int>(ns + "max_inliers", loaded_max_inliers_, 600);
+    nh_.param<double>(ns + "min_inlier_ratio", loaded_min_inlier_ratio_, 0.02);
+    nh_.param<double>(ns + "max_inlier_ratio", loaded_max_inlier_ratio_, 0.50);
+    nh_.param<double>(ns + "min_height_m", loaded_min_height_m_, 1.00);
+    nh_.param<double>(ns + "min_radius_m", loaded_min_radius_m_, 0.30);
+    nh_.param<double>(ns + "max_radius_m", loaded_max_radius_m_, 0.40);
     nh_.param<double>(ns + "min_radial_rel_std", loaded_min_radial_rel_std_, 0.00);
     nh_.param<double>(ns + "max_radial_rel_std", loaded_max_radial_rel_std_, 0.15);
-    nh_.param<double>(ns + "ransac_axis_x",      loaded_ransac_axis_x_,     0.0);
-    nh_.param<double>(ns + "ransac_axis_y",      loaded_ransac_axis_y_,     0.0);
-    nh_.param<double>(ns + "ransac_axis_z",      loaded_ransac_axis_z_,     1.0);
-    nh_.param<double>(ns + "eps_angle_deg",      loaded_eps_angle_deg_,     15.0);
-    nh_.param<double>(ns + "normal_distance_weight",   loaded_normal_distance_weight_,    0.05);
-    nh_.param<int>(   ns + "ransac_max_iterations",    loaded_ransac_max_iterations_,     20000);
-    nh_.param<double>(ns + "ransac_distance_threshold",loaded_ransac_distance_threshold_, 0.015);
-    nh_.param<double>(ns + "max_radial_range_ratio",   loaded_max_radial_range_ratio_,    0.30);
-    nh_.param<double>(ns + "min_aspect_ratio",         loaded_min_aspect_ratio_,          1.5);
-    nh_.param<double>(ns + "min_circularity",          loaded_min_circularity_,           0.15);
-    nh_.param<int>(   ns + "normal_k_search",          loaded_normal_k_search_,           30);
-    nh_.param<double>(ns + "wall_angle_threshold",     loaded_wall_angle_threshold_,      20.0);
-    nh_.param<double>(ns + "wall_distance_threshold",  loaded_wall_distance_threshold_,   0.02);
-    nh_.param<int>(   ns + "wall_max_iterations",      loaded_wall_max_iterations_,       5000);
-    nh_.param<int>(   ns + "max_walls",                loaded_max_walls_,                 3);
-    nh_.param<int>(   ns + "wall_min_plane_points",    loaded_wall_min_plane_points_,     100);
-    nh_.param<double>(ns + "wall_min_keep_ratio",      loaded_wall_min_keep_ratio_,       0.10);
-    nh_.param<bool>(  ns + "use_ideal_axis",           loaded_use_ideal_axis_,            true);
-    nh_.param<double>(ns + "axis_angle_threshold_deg", loaded_axis_angle_threshold_deg_,  15.0);
-    nh_.param<double>(ns + "virtual_base_to_surface",  virtual_base_to_surface_,          600.0);
+    nh_.param<double>(ns + "ransac_axis_x", loaded_ransac_axis_x_, 0.0);
+    nh_.param<double>(ns + "ransac_axis_y", loaded_ransac_axis_y_, 0.0);
+    nh_.param<double>(ns + "ransac_axis_z", loaded_ransac_axis_z_, 1.0);
+    nh_.param<double>(ns + "eps_angle_deg", loaded_eps_angle_deg_, 15.0);
+    nh_.param<double>(ns + "normal_distance_weight", loaded_normal_distance_weight_, 0.05);
+    nh_.param<int>(ns + "ransac_max_iterations", loaded_ransac_max_iterations_, 20000);
+    nh_.param<double>(ns + "ransac_distance_threshold", loaded_ransac_distance_threshold_, 0.015);
+    nh_.param<double>(ns + "max_radial_range_ratio", loaded_max_radial_range_ratio_, 0.30);
+    nh_.param<double>(ns + "min_aspect_ratio", loaded_min_aspect_ratio_, 1.5);
+    nh_.param<double>(ns + "min_circularity", loaded_min_circularity_, 0.15);
+    nh_.param<int>(ns + "normal_k_search", loaded_normal_k_search_, 30);
+    nh_.param<double>(ns + "wall_angle_threshold", loaded_wall_angle_threshold_, 20.0);
+    nh_.param<double>(ns + "wall_distance_threshold", loaded_wall_distance_threshold_, 0.02);
+    nh_.param<int>(ns + "wall_max_iterations", loaded_wall_max_iterations_, 5000);
+    nh_.param<int>(ns + "max_walls", loaded_max_walls_, 3);
+    nh_.param<int>(ns + "wall_min_plane_points", loaded_wall_min_plane_points_, 100);
+    nh_.param<double>(ns + "wall_min_keep_ratio", loaded_wall_min_keep_ratio_, 0.10);
+    nh_.param<bool>(ns + "use_ideal_axis", loaded_use_ideal_axis_, true);
+    nh_.param<double>(ns + "axis_angle_threshold_deg", loaded_axis_angle_threshold_deg_, 15.0);
+    nh_.param<double>(ns + "virtual_base_to_surface", virtual_base_to_surface_, 600.0);
 
     ROS_WARN("[switchPreset] Loaded preset_%s: radius=[%.2f,%.2f]m, eps=%.1fdeg, axis=[%.3f,%.3f,%.3f], iter=%d",
-             object.c_str(), loaded_min_radius_m_, loaded_max_radius_m_,
-             loaded_eps_angle_deg_, loaded_ransac_axis_x_, loaded_ransac_axis_y_, loaded_ransac_axis_z_,
-             loaded_ransac_max_iterations_);
+             object.c_str(), loaded_min_radius_m_, loaded_max_radius_m_, loaded_eps_angle_deg_, loaded_ransac_axis_x_,
+             loaded_ransac_axis_y_, loaded_ransac_axis_z_, loaded_ransac_max_iterations_);
 
     // 同步更新 dynamic_reconfigure 面板
     pcl_process::CylinderDetectionConfig cfg;
-    cfg.min_inliers              = loaded_min_inliers_;
-    cfg.max_inliers              = loaded_max_inliers_;
-    cfg.min_inlier_ratio         = loaded_min_inlier_ratio_;
-    cfg.max_inlier_ratio         = loaded_max_inlier_ratio_;
-    cfg.min_height_m             = loaded_min_height_m_;
-    cfg.min_radius_m             = loaded_min_radius_m_;
-    cfg.max_radius_m             = loaded_max_radius_m_;
-    cfg.min_radial_rel_std       = loaded_min_radial_rel_std_;
-    cfg.max_radial_rel_std       = loaded_max_radial_rel_std_;
-    cfg.ransac_axis_x            = loaded_ransac_axis_x_;
-    cfg.ransac_axis_y            = loaded_ransac_axis_y_;
-    cfg.ransac_axis_z            = loaded_ransac_axis_z_;
-    cfg.eps_angle_deg            = loaded_eps_angle_deg_;
-    cfg.normal_distance_weight   = loaded_normal_distance_weight_;
-    cfg.ransac_max_iterations    = loaded_ransac_max_iterations_;
-    cfg.ransac_distance_threshold= loaded_ransac_distance_threshold_;
-    cfg.max_radial_range_ratio   = loaded_max_radial_range_ratio_;
-    cfg.min_aspect_ratio         = loaded_min_aspect_ratio_;
-    cfg.min_circularity          = loaded_min_circularity_;
-    cfg.normal_k_search          = loaded_normal_k_search_;
-    cfg.wall_angle_threshold     = loaded_wall_angle_threshold_;
-    cfg.wall_distance_threshold  = loaded_wall_distance_threshold_;
-    cfg.wall_max_iterations      = loaded_wall_max_iterations_;
-    cfg.max_walls                = loaded_max_walls_;
-    cfg.wall_min_plane_points    = loaded_wall_min_plane_points_;
-    cfg.wall_min_keep_ratio      = loaded_wall_min_keep_ratio_;
-    cfg.use_ideal_axis           = loaded_use_ideal_axis_;
-    cfg.axis_angle_threshold_deg = loaded_axis_angle_threshold_deg_;
-    cfg.virtual_base_to_surface  = virtual_base_to_surface_;
+    cfg.min_inliers               = loaded_min_inliers_;
+    cfg.max_inliers               = loaded_max_inliers_;
+    cfg.min_inlier_ratio          = loaded_min_inlier_ratio_;
+    cfg.max_inlier_ratio          = loaded_max_inlier_ratio_;
+    cfg.min_height_m              = loaded_min_height_m_;
+    cfg.min_radius_m              = loaded_min_radius_m_;
+    cfg.max_radius_m              = loaded_max_radius_m_;
+    cfg.min_radial_rel_std        = loaded_min_radial_rel_std_;
+    cfg.max_radial_rel_std        = loaded_max_radial_rel_std_;
+    cfg.ransac_axis_x             = loaded_ransac_axis_x_;
+    cfg.ransac_axis_y             = loaded_ransac_axis_y_;
+    cfg.ransac_axis_z             = loaded_ransac_axis_z_;
+    cfg.eps_angle_deg             = loaded_eps_angle_deg_;
+    cfg.normal_distance_weight    = loaded_normal_distance_weight_;
+    cfg.ransac_max_iterations     = loaded_ransac_max_iterations_;
+    cfg.ransac_distance_threshold = loaded_ransac_distance_threshold_;
+    cfg.max_radial_range_ratio    = loaded_max_radial_range_ratio_;
+    cfg.min_aspect_ratio          = loaded_min_aspect_ratio_;
+    cfg.min_circularity           = loaded_min_circularity_;
+    cfg.normal_k_search           = loaded_normal_k_search_;
+    cfg.wall_angle_threshold      = loaded_wall_angle_threshold_;
+    cfg.wall_distance_threshold   = loaded_wall_distance_threshold_;
+    cfg.wall_max_iterations       = loaded_wall_max_iterations_;
+    cfg.max_walls                 = loaded_max_walls_;
+    cfg.wall_min_plane_points     = loaded_wall_min_plane_points_;
+    cfg.wall_min_keep_ratio       = loaded_wall_min_keep_ratio_;
+    cfg.use_ideal_axis            = loaded_use_ideal_axis_;
+    cfg.axis_angle_threshold_deg  = loaded_axis_angle_threshold_deg_;
+    cfg.virtual_base_to_surface   = virtual_base_to_surface_;
     dyn_reconf_server_->updateConfig(cfg);
 
     // 立即应用到 fitter
@@ -556,22 +555,26 @@ void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam::
     int    k         = msg->k;
     int    w0        = msg->w0;
 
-    bool changed = (distance != last_distance_) || (step_width != last_step_width_) || (height != last_height_) ||
-                   (lap != last_lap_) || (arm_reach != last_arm_reach_) || (mode != last_mode_) || (k != last_k_);
+    auto nanSafeNeq = [](double a, double b) { return std::isnan(a) ? !std::isnan(b) : (a != b); };
+    bool changed    = (distance != last_distance_) || (step_width != last_step_width_) ||
+                   nanSafeNeq(height, last_height_) || (lap != last_lap_) || (arm_reach != last_arm_reach_) ||
+                   (mode != last_mode_) || (k != last_k_);
     if (changed) {
-        ROS_WARN("Process parameters changed: distance=%.2f (was %.2f), step_width=%.2f (was %.2f), step_height=%.2f "
-                 "(was %.2f),lap=%.2f (was %.2f), arm_reach=%.2f (was %.2f), mode=%d (was %d), k=%d (was %d)",
-                 distance, last_distance_, step_width, last_step_width_, height, last_height_, lap, last_lap_,
-                 arm_reach, last_arm_reach_, mode, last_mode_, k, last_k_);
+        ROS_WARN("Cylinder Process parameters changed: distance=%.2f (was %.2f), step_width=%.2f (was %.2f), step_height=%.2f "
+                 "(was %.2f),height=%.2f (was %.2f),lap=%.2f (was %.2f), arm_reach=%.2f (was %.2f), mode=%d (was %d), "
+                 "k=%d (was %d)",
+                 distance, last_distance_, step_width, last_step_width_, step_height, last_step_height_, height,
+                 last_height_, lap, last_lap_, arm_reach, last_arm_reach_, mode, last_mode_, k, last_k_);
 
-        last_distance_   = distance;
-        last_step_width_ = step_width;
-        last_height_     = height;
-        last_lap_        = lap;
-        last_arm_reach_  = arm_reach;
-        last_mode_       = mode;
-        last_k_          = k;
-        last_w0_         = w0;
+        last_distance_    = distance;
+        last_step_width_  = step_width;
+        last_step_height_ = step_height;
+        last_height_      = height;
+        last_lap_         = lap;
+        last_arm_reach_   = arm_reach;
+        last_mode_        = mode;
+        last_k_           = k;
+        last_w0_          = w0;
 
         setOption(distance, step_width, step_height, height, lap, arm_reach, mode, k);
     } else {
@@ -585,21 +588,21 @@ void CylinderFittingROS::workingObjectCallback(const std_msgs::String::ConstPtr 
         ROS_WARN("Received new working object: %s (previous: %s)", new_object.c_str(), current_work_object_.c_str());
         current_work_object_ = new_object;
 
-        // A / B 切换时自动加载对应参数预设
-        if (new_object == "A" || new_object == "B") {
+        // A / D 切换时自动加载对应参数预设
+        if (new_object == "A" || new_object == "D") {
             ROS_WARN("=== Switching to preset_%s ===", new_object.c_str());
             switchPreset(new_object);
         }
 
         // 工作对象切换时，根据 achieve_work_pose_ 联动更新 processing_ 状态
-        bool cmd_active = achieve_work_pose_.load(std::memory_order_acquire);
-        bool should_process = cmd_active && (new_object == "A" || new_object == "B");
+        bool cmd_active     = achieve_work_pose_.load(std::memory_order_acquire);
+        bool should_process = cmd_active && (new_object == "A" || new_object == "D");
         bool was_processing = processing_.load(std::memory_order_acquire);
         if (should_process && !was_processing) {
             ROS_WARN("=== Work object switched to %s while active: START cylinder fitting ===", new_object.c_str());
             processing_.store(true, std::memory_order_release);
         } else if (!should_process && was_processing) {
-            ROS_WARN("=== Work object switched away from A/B while active: STOP cylinder fitting ===");
+            ROS_WARN("=== Work object switched away from A/D while active: STOP cylinder fitting ===");
             processing_.store(false, std::memory_order_release);
         }
     } else {
@@ -617,7 +620,7 @@ void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
     }
     achieve_work_pose_.store(next_cmd, std::memory_order_release);
 
-    bool should_process = next_cmd && (getCurrentWorkObject() == "A" || getCurrentWorkObject() == "B");
+    bool should_process = next_cmd && (getCurrentWorkObject() == "A" || getCurrentWorkObject() == "D");
     bool was_processing = processing_.load(std::memory_order_acquire);
     if (should_process && !was_processing) {
         ROS_WARN("=== Main control command: START cylinder fitting ===");
