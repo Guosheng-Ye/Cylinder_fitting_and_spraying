@@ -412,15 +412,17 @@ void IBeamFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
             IBeamOutputs outputs;
             if (!results.empty()) {
                 fitter_->updateOutputs(inputs, results[0], outputs);
+
+                // 作业切片 - 使用设置的切片参数 //宽使用手动设置宽，高使用工字钢高度
+                fitter_->sliceIBeam(results[0], outputs, 0, outputs.beam_length_of_working);
+
+                // 生成并发布基座作业点
+                generateTargetPoses(outputs);
+
+                // 可视化
+                fitter_->visualizeResults();
             }
-            // 作业切片 - 使用设置的切片参数 //宽使用手动设置宽，高使用工字钢高度
-            fitter_->sliceIBeam(results[0], outputs, 0, outputs.beam_length_of_working);
 
-            // 生成并发布基座作业点
-            generateTargetPoses(outputs);
-
-            // 可视化
-            fitter_->visualizeResults();
         } else {
             ROS_WARN_THROTTLE(5.0, "No I-beams detected in current frame");
         }

@@ -2541,24 +2541,31 @@ void IBeamFitter::sliceIBeam(const IBeamResult &beam_result, const IBeamOutputs 
     // 构建局部坐标系
     // u: 主轴方向（沿工字钢长度方向）
     // w: 垂直向上（Z方向，沿截面高度方向）
-    // v: 水平方向（垂直于主轴和Z轴，指向机器人方向）
     Eigen::Vector3d u = main_axis;
-    Eigen::Vector3d w(0, 0, 1); // 垂直向上
-    Eigen::Vector3d v = w.cross(u);
-    if (v.norm() < 1e-6) {
-        v = Eigen::Vector3d(0, 1, 0); // 退化情况
-    }
-    v.normalize();
+    Eigen::Vector3d w(0, 0, 1);
 
-    // 计算法向量（工字钢腹板平面的几何法向量）
-    // v 是垂直于主轴 u 和竖直轴 w 的向量，即腹板法向量
-    Eigen::Vector3d normal = v;
+    // 计算法向量：与 updateOutputs 保持一致，使用 to_origin 投影法
+    // 从工字钢中心指向原点的水平方向，去除主轴分量，保留工字钢倾斜带来的 Z 分量
+    Eigen::Vector3d to_origin_xy = -center;
+    to_origin_xy[2]              = 0;
+    if (to_origin_xy.norm() > 1e-6) {
+        to_origin_xy.normalize();
+    } else {
+        to_origin_xy = Eigen::Vector3d(1.0, 0.0, 0.0);
+    }
+
+    Eigen::Vector3d normal = to_origin_xy - to_origin_xy.dot(u) * u;
+    if (normal.norm() < 1e-6) {
+        // 退化：主轴与 to_origin 平行，改用叉积备选
+        normal = u.cross(Eigen::Vector3d(0, 0, 1));
+        if (normal.norm() < 1e-6) {
+            normal = Eigen::Vector3d(1.0, 0.0, 0.0);
+        }
+    }
+    normal.normalize();
 
     // 确保法向量指向原点/机器人一侧
-    // 检查 normal 与 (-center) 的点积，如果小于0说明背离原点，需要翻转
-    Eigen::Vector3d to_origin = -center;
-    to_origin[2]              = 0; // 仅在水平面上判断方向
-    if (normal.dot(to_origin) < 0) {
+    if (normal.dot(to_origin_xy) < 0) {
         normal = -normal;
     }
 
