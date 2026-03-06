@@ -23,3 +23,12 @@ src/pcl_process/src/ibeam_fitting/log.txt
 src/pcl_process/src/cylinder_fitting/out_res.txt
 src/pcl_process/src/cylinder_fitting/cylinder_fit_result.png
 src/pcl_process/src/cylinder_fitting/113.pcd
+src/robot_bt_manager/CMakeLists.txt
+src/robot_bt_manager/package.xml
+src/robot_bt_manager/README.md
+src/robot_bt_manager/msg/IBeamProcessParam.msg
+src/robot_bt_manager/msg/IBeamTargetInfo.msg
+src/robot_bt_manager/msg/ProcessParam.msg
+src/robot_bt_manager/msg/TargetInfo.msg
+src/robot_bt_manager/msg/TargetPose.msg
+src/robot_bt_manager/msg/TargetPoseList.msg
