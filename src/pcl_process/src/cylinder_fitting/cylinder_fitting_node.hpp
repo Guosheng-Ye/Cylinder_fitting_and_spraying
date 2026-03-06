@@ -109,7 +109,39 @@ public:
         int    k_{0};                          // 手动模式下的倍数k
         float  w0_{0};                         // 有效喷副宽度
 
-        // 轴向校正参数
+        // RANSAC 轴向约束参数
+        // eps_angle_deg_ 控制 RANSAC 拟合时允许圆柱轴向偏离参考轴的最大角度
+        // 竖直立柱检测：设为 10~15；倾斜圆柱检测：设为 15~25
+        double eps_angle_deg_{10.0};            // RANSAC轴向容差(度)，偏离参考轴超过此值的圆柱将被拒绝
+
+        // RANSAC 参考轴方向 (归一化后使用)
+        // 竖直立柱: (0,0,1); 倾斜~45°圆柱: (0.707,0,0.707)
+        double ransac_axis_x_{0.0};
+        double ransac_axis_y_{0.0};
+        double ransac_axis_z_{1.0};
+
+        // RANSAC 拟合参数
+        double normal_distance_weight_{0.1};     // 法线距离权重 (RANSAC拟合时法线与几何距离的平衡)
+        int    ransac_max_iterations_{10000};    // RANSAC最大迭代次数
+        double ransac_distance_threshold_{0.015}; // RANSAC距离阈值 (米)，点到圆柱面距离小于此值视为内点
+
+        // 圆柱验证阈值
+        double max_radial_range_ratio_{0.30};    // 径向极差比上限 (max_r - min_r) / mean_r
+        double min_aspect_ratio_{1.5};           // 最小长宽比 H/(2*R)，过小说明太扁不是立柱
+        double min_circularity_{0.15};           // 最小圆度评分，低于此值拒绝
+
+        // 法线估计参数
+        int    normal_k_search_{50};             // 法线估计KNN搜索邻居数
+
+        // 墙面移除参数
+        double wall_angle_threshold_{15.0};      // 墙面检测角度阈值 (度)，平面法向量与Z轴夹角在90°±此值内视为墙面
+        double wall_distance_threshold_{0.02};   // 墙面RANSAC距离阈值 (米)
+        int    wall_max_iterations_{5000};       // 墙面RANSAC最大迭代次数
+        int    max_walls_{2};                    // 最多检测/移除的墙面数
+        int    wall_min_plane_points_{100};      // 墙面最小平面内点数,少于此值停止检测
+        double wall_min_keep_ratio_{0.15};       // 墙面移除后最少保留点云比例 (安全阈值)
+
+        // 轴向校正参数（切片阶段使用）
         // 当 use_ideal_axis_ = true 且拟合轴向与竖直方向偏差 < 阈值时：使用理想轴向 (0, 0, 1)
         // 当偏差超过阈值时：保留拟合轴向并输出警告
         // 当 use_ideal_axis_ = false 时：始终使用拟合轴向

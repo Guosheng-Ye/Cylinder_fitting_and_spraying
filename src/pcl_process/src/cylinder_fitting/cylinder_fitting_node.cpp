@@ -376,26 +376,34 @@ std::vector<double> CylinderFitter::cylinder_center_convert2robot_base(const std
 /// @param normals 法线
 void CylinderFitter::estimateNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                                      pcl::PointCloud<pcl::Normal>::Ptr   normals) {
+    const auto                                       &fp = fitting_params_;
     pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
     pcl::search::KdTree<pcl::PointXYZ>::Ptr           tree(new pcl::search::KdTree<pcl::PointXYZ>());
     ne.setInputCloud(cloud);
     ne.setSearchMethod(tree);
-    ne.setKSearch(50); // 搜索点数
+    ne.setKSearch(fp.normal_k_search_); // 法线估计KNN搜索邻居数
     ne.compute(*normals);
 }
 
-/// @brief 改进的墙面去除函数（支持多墙面场景）
+/// @brief 改进的平面去除函数（支持墙面 + 地面/天花板）
+/// 同时移除竖直墙面和水平地面/天花板，确保稀疏圆柱不被大平面淹没
 void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
-                                 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered, double angle_threshold = 15.0,
-                                 double distance_threshold = 0.02, int max_iterations = 5000) {
+                                 pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered, double angle_threshold,
+                                 double distance_threshold, int max_iterations) {
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     *temp_cloud = *cloud;
 
-    int       walls_removed = 0;
-    const int max_walls     = 2; // 最多检测4面墙
+    int       walls_removed  = 0;
+    int       floors_removed = 0;
+    int       planes_removed = 0;
+    const int max_walls      = fitting_params_.max_walls_;          // 最多检测墙面数
+    const int max_planes     = max_walls + 2;                       // 墙面 + 地面 + 天花板
+    const double min_keep_ratio = fitting_params_.wall_min_keep_ratio_; // 使用参数而非硬编码
+    int       skipped_planes = 0;
+    const int max_skip       = 2;  // 最多跳过2个非墙非地面的平面后停止
 
-    while (walls_removed < max_walls && temp_cloud->size() > cloud->size() * 0.3) {
+    while (planes_removed < max_planes && temp_cloud->size() > cloud->size() * min_keep_ratio) {
         pcl::SACSegmentation<pcl::PointXYZ> seg;
         pcl::PointIndices::Ptr              inliers(new pcl::PointIndices);
         pcl::ModelCoefficients::Ptr         coefficients(new pcl::ModelCoefficients);
@@ -409,7 +417,7 @@ void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 
         seg.segment(*inliers, *coefficients);
 
-        if (inliers->indices.empty() || inliers->indices.size() < 100) {
+        if (inliers->indices.empty() || (int)inliers->indices.size() < fitting_params_.wall_min_plane_points_) {
             break; // 没有更多显著平面
         }
 
@@ -420,9 +428,12 @@ void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
         Eigen::Vector3f z_axis(0.0, 0.0, 1.0);
         double          angle = std::acos(std::abs(plane_normal.dot(z_axis))) * 180.0 / M_PI;
 
-        // 判断是否为竖直墙面（法向量与Z轴接近垂直）
-        if (std::abs(angle - 90.0) < angle_threshold) {
-            // 去除墙面点
+        // 判断平面类型
+        bool is_wall  = std::abs(angle - 90.0) < angle_threshold;  // 竖直墙面: 法线与Z轴接近垂直
+        bool is_floor = angle < angle_threshold;                    // 水平地面/天花板: 法线与Z轴接近平行
+
+        if (is_wall || is_floor) {
+            // 去除平面点
             pcl::ExtractIndices<pcl::PointXYZ> extract;
             extract.setInputCloud(temp_cloud);
             extract.setIndices(inliers);
@@ -431,24 +442,45 @@ void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
             pcl::PointCloud<pcl::PointXYZ>::Ptr temp_filtered(new pcl::PointCloud<pcl::PointXYZ>);
             extract.filter(*temp_filtered);
 
-            ROS_INFO("Removed wall %d with %zu points (angle: %.2f°)", walls_removed + 1, inliers->indices.size(),
-                     angle);
+            const char *plane_type = is_wall ? "wall" : "floor/ceiling";
+            ROS_INFO("Removed %s %d with %zu points (angle: %.2f°)", plane_type,
+                     (is_wall ? walls_removed : floors_removed) + 1, inliers->indices.size(), angle);
 
             temp_cloud = temp_filtered;
-            walls_removed++;
+            planes_removed++;
+            if (is_wall) walls_removed++;
+            else floors_removed++;
         } else {
-            break; // 不是墙面，停止检测
+            // 非墙面也非地面的倾斜平面：从搜索池中移除以继续寻找后面的墙面/地面
+            pcl::ExtractIndices<pcl::PointXYZ> extract;
+            extract.setInputCloud(temp_cloud);
+            extract.setIndices(inliers);
+            extract.setNegative(true);
+
+            pcl::PointCloud<pcl::PointXYZ>::Ptr temp_remaining(new pcl::PointCloud<pcl::PointXYZ>);
+            extract.filter(*temp_remaining);
+
+            ROS_INFO("Skipped oblique plane with %zu points (angle: %.2f°), continuing search...",
+                     inliers->indices.size(), angle);
+
+            temp_cloud = temp_remaining;
+            planes_removed++;
+            skipped_planes++;
+            if (skipped_planes >= max_skip) {
+                break; // 连续跳过太多非目标平面，停止
+            }
         }
     }
 
-    // 安全检查：保证至少保留15%的点
-    if (temp_cloud->size() < cloud->size() * 0.15) {
+    // 安全检查：保证至少保留 min_keep_ratio 的点
+    if (temp_cloud->size() < cloud->size() * min_keep_ratio) {
         ROS_WARN("Too many points removed (%.1f%%), keeping original cloud.",
                  100.0 * (1.0 - (double)temp_cloud->size() / cloud->size()));
         *cloud_filtered = *cloud;
     } else {
         *cloud_filtered = *temp_cloud;
-        ROS_INFO("Wall removal complete: %d walls removed, %zu -> %zu points (kept %.1f%%)", walls_removed,
+        ROS_INFO("Plane removal complete: %d walls + %d floors removed, %zu -> %zu points (kept %.1f%%)",
+                 walls_removed, floors_removed,
                  cloud->size(), cloud_filtered->size(), 100.0 * cloud_filtered->size() / cloud->size());
     }
 }
@@ -628,37 +660,13 @@ double CylinderFitter::calculateCircularity(pcl::PointCloud<pcl::PointXYZ>::Ptr 
 
 /// @brief 标准圆柱拟合
 /// @param cloud 点云
-/// @param normals 法线
+/// @param normals 法线（旧接口保留，实际在平面去除后重新估计）
 void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                                     pcl::PointCloud<pcl::Normal>::Ptr   normals) {
 
     // 输入验证
-    if (cloud->empty() || normals->empty()) {
-        ROS_ERROR("Input cloud or normals is empty!");
-        cylinder_model_.valid = false;
-        return;
-    }
-
-    if (cloud->size() != normals->size()) {
-        ROS_ERROR("Cloud and normals size mismatch!");
-        cylinder_model_.valid = false;
-        return;
-    }
-
-    // 去除墙面点（支持多墙面）
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-    removeWalls(cloud, cloud_filtered);
-
-    if (cloud_filtered->empty()) {
-        ROS_WARN("No valid points left after wall removal.");
-        cylinder_model_.valid = false;
-        return;
-    }
-
-    // 同步提取对应的法向量
-    pcl::PointCloud<pcl::Normal>::Ptr normals_filtered(new pcl::PointCloud<pcl::Normal>);
-    if (!extractCorrespondingNormals(cloud, normals, cloud_filtered, normals_filtered)) {
-        ROS_ERROR("Failed to extract corresponding normals.");
+    if (cloud->empty()) {
+        ROS_ERROR("Input cloud is empty!");
         cylinder_model_.valid = false;
         return;
     }
@@ -668,32 +676,76 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     cylinder_model_.inliers->clear();
     const auto &fp = fitting_params_;
 
+    // 去除墙面 + 地面点
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+    removeWalls(cloud, cloud_filtered, fp.wall_angle_threshold_, fp.wall_distance_threshold_, fp.wall_max_iterations_);
+
+    if (cloud_filtered->empty()) {
+        ROS_WARN("No valid points left after plane removal.");
+        cylinder_model_.valid = false;
+        return;
+    }
+
+    // **关键改进：在去除平面后重新估计法线**
+    // 原来使用全量点云的法线，稀疏圆柱点的K邻居大多是墙/地面点，导致法线被污染
+    // 去除平面后重新估计，圆柱点的法线更准确，RANSAC法线权重才能有效发挥作用
+    pcl::PointCloud<pcl::Normal>::Ptr normals_filtered(new pcl::PointCloud<pcl::Normal>);
+    estimateNormals(cloud_filtered, normals_filtered);
+
+    if (cloud_filtered->size() != normals_filtered->size()) {
+        ROS_ERROR("Cloud and normals size mismatch after re-estimation!");
+        cylinder_model_.valid = false;
+        return;
+    }
+
     // 配置圆柱拟合分割器
     pcl::SACSegmentationFromNormals<pcl::PointXYZ, pcl::Normal> seg;
     seg.setOptimizeCoefficients(true);
     seg.setModelType(pcl::SACMODEL_CYLINDER);
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setNormalDistanceWeight(0.1);
-    seg.setMaxIterations(10000);     // 适当减少，提高效率
-    seg.setDistanceThreshold(0.015); // 更严格的距离阈值
+    seg.setNormalDistanceWeight(fp.normal_distance_weight_);
+    seg.setMaxIterations(fp.ransac_max_iterations_);
+    seg.setDistanceThreshold(fp.ransac_distance_threshold_);
     seg.setRadiusLimits(fp.min_radius_m, fp.max_radius_m);
 
-    // **关键修复：使用过滤后的点云和法向量**
     seg.setInputCloud(cloud_filtered);
     seg.setInputNormals(normals_filtered);
 
-    // 强制轴线接近垂直
-    seg.setAxis(Eigen::Vector3f(0, 0, 1));
-    seg.setEpsAngle(10.0f * M_PI / 180.0f);
+    // 轴向约束：参考轴从参数配置，通过 eps_angle_deg_ 控制允许的偏离角度
+    // 竖直立柱: axis=(0,0,1), eps=10~15°
+    // 倾斜圆柱: axis=实测方向(0.707,0,0.707等), eps=15~25°
+    Eigen::Vector3f ref_axis(fp.ransac_axis_x_, fp.ransac_axis_y_, fp.ransac_axis_z_);
+    if (ref_axis.norm() < 1e-6) {
+        ref_axis = Eigen::Vector3f(0, 0, 1); // 安全回退
+    }
+    ref_axis.normalize();
+    seg.setAxis(ref_axis);
+    seg.setEpsAngle(static_cast<float>(fp.eps_angle_deg_) * M_PI / 180.0f);
+
+    ROS_INFO("RANSAC input: %zu pts, axis=[%.3f,%.3f,%.3f], normal_w=%.3f, dist_thresh=%.4f, eps_angle=%.1f deg, R=[%.3f-%.3f], max_iter=%d",
+             cloud_filtered->size(), ref_axis.x(), ref_axis.y(), ref_axis.z(),
+             fp.normal_distance_weight_, fp.ransac_distance_threshold_,
+             fp.eps_angle_deg_, fp.min_radius_m, fp.max_radius_m, fp.ransac_max_iterations_);
 
     pcl::ModelCoefficients::Ptr coefficients_cylinder(new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr      inliers_cylinder(new pcl::PointIndices);
     seg.segment(*inliers_cylinder, *coefficients_cylinder);
 
     if (inliers_cylinder->indices.empty()) {
-        ROS_WARN("No cylinder found in filtered cloud.");
+        ROS_WARN("No cylinder found in filtered cloud (RANSAC returned 0 inliers).");
         cylinder_model_.valid = false;
         return;
+    }
+
+    // 诊断: 输出RANSAC原始结果
+    if (coefficients_cylinder->values.size() >= 7) {
+        Eigen::Vector3f raw_axis(coefficients_cylinder->values[3], coefficients_cylinder->values[4],
+                                 coefficients_cylinder->values[5]);
+        raw_axis.normalize();
+        double tilt_from_z = std::acos(std::abs(raw_axis.z())) * 180.0 / M_PI;
+        ROS_INFO("RANSAC raw result: %zu inliers, R=%.4f m, axis=[%.3f,%.3f,%.3f], tilt_from_vertical=%.1f deg",
+                 inliers_cylinder->indices.size(), coefficients_cylinder->values[6],
+                 raw_axis.x(), raw_axis.y(), raw_axis.z(), tilt_from_z);
     }
 
     // 计算内点统计（基于过滤后的点云）
@@ -785,10 +837,12 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
              (mean_r >= fp.min_radius_m && mean_r <= fp.max_radius_m) ? "ok" : "false");
     ROS_INFO("Radial rel std:   %.4f [%.4f-%.4f] %s", radial_rel_std, fp.min_radial_rel_std, fp.max_radial_rel_std,
              (radial_rel_std >= fp.min_radial_rel_std && radial_rel_std <= fp.max_radial_rel_std) ? "ok" : "false");
-    ROS_INFO("Radial range:     %.4f (%.1f%% of radius) [<30%%] %s", radial_range, radial_range_ratio * 100.0,
-             (radial_range_ratio <= 0.3) ? "ok" : "false");
-    ROS_INFO("Aspect ratio:     %.2f (H/D) [>1.5] %s", aspect_ratio, (aspect_ratio >= 1.5) ? "ok" : "false");
-    ROS_INFO("Circularity:      %.4f [>0.15] %s", circularity, (circularity >= 0.15) ? "ok" : "false");
+    ROS_INFO("Radial range:     %.4f (%.1f%% of radius) [<%.0f%%] %s", radial_range, radial_range_ratio * 100.0,
+             fp.max_radial_range_ratio_ * 100.0, (radial_range_ratio <= fp.max_radial_range_ratio_) ? "ok" : "false");
+    ROS_INFO("Aspect ratio:     %.2f (H/D) [>%.1f] %s", aspect_ratio, fp.min_aspect_ratio_,
+             (aspect_ratio >= fp.min_aspect_ratio_) ? "ok" : "false");
+    ROS_INFO("Circularity:      %.4f [>%.2f] %s", circularity, fp.min_circularity_,
+             (circularity >= fp.min_circularity_) ? "ok" : "false");
     ROS_INFO("=========================================");
 
     bool        valid = true;
@@ -809,13 +863,13 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     } else if (radial_rel_std < fp.min_radial_rel_std || radial_rel_std > fp.max_radial_rel_std) {
         valid         = false;
         reject_reason = "Radial relative std out of range";
-    } else if (radial_range_ratio > 0.3) {
+    } else if (radial_range_ratio > fp.max_radial_range_ratio_) {
         valid         = false;
         reject_reason = "Radial range too large (not circular)";
-    } else if (aspect_ratio < 1.5) {
+    } else if (aspect_ratio < fp.min_aspect_ratio_) {
         valid         = false;
         reject_reason = "Aspect ratio too small (too flat)";
-    } else if (circularity < 0.15) {
+    } else if (circularity < fp.min_circularity_) {
         valid         = false;
         reject_reason = "Circularity too low (not round enough)";
     }

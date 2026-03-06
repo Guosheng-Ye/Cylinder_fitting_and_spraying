@@ -5,6 +5,315 @@
 #include <atomic>
 #include <set>
 
+/// @brief 从ROS参数服务器加载检测参数（YAML配置文件 + launch文件设置）
+void CylinderFittingROS::loadParams() {
+    // 圆柱模型拟合参数
+    int min_inliers, max_inliers;
+    nh_.param<int>("min_inliers", min_inliers, 300);
+    nh_.param<int>("max_inliers", max_inliers, 600);
+
+    double min_inlier_ratio, max_inlier_ratio;
+    nh_.param<double>("min_inlier_ratio", min_inlier_ratio, 0.02);
+    nh_.param<double>("max_inlier_ratio", max_inlier_ratio, 0.50);
+
+    double min_height_m, min_radius_m, max_radius_m;
+    nh_.param<double>("min_height_m", min_height_m, 1.00);
+    nh_.param<double>("min_radius_m", min_radius_m, 0.30);
+    nh_.param<double>("max_radius_m", max_radius_m, 0.40);
+
+    double min_radial_rel_std, max_radial_rel_std;
+    nh_.param<double>("min_radial_rel_std", min_radial_rel_std, 0.00);
+    nh_.param<double>("max_radial_rel_std", max_radial_rel_std, 0.15);
+
+    // 轴向校正参数
+    bool   use_ideal_axis;
+    double axis_angle_threshold_deg;
+    nh_.param<bool>("use_ideal_axis", use_ideal_axis, true);
+    nh_.param<double>("axis_angle_threshold_deg", axis_angle_threshold_deg, 15.0);
+
+    // RANSAC 轴向约束参数
+    double eps_angle_deg;
+    nh_.param<double>("eps_angle_deg", eps_angle_deg, 10.0);
+
+    // RANSAC 参考轴方向 (竖直立柱默认 0,0,1; 倾斜圆柱设为实际轴向)
+    double ransac_axis_x, ransac_axis_y, ransac_axis_z;
+    nh_.param<double>("ransac_axis_x", ransac_axis_x, 0.0);
+    nh_.param<double>("ransac_axis_y", ransac_axis_y, 0.0);
+    nh_.param<double>("ransac_axis_z", ransac_axis_z, 1.0);
+
+    // RANSAC 拟合参数
+    double normal_distance_weight;
+    int    ransac_max_iterations;
+    double ransac_distance_threshold;
+    nh_.param<double>("normal_distance_weight", normal_distance_weight, 0.1);
+    nh_.param<int>("ransac_max_iterations", ransac_max_iterations, 10000);
+    nh_.param<double>("ransac_distance_threshold", ransac_distance_threshold, 0.015);
+
+    // 圆柱验证阈值
+    double max_radial_range_ratio, min_aspect_ratio, min_circularity;
+    nh_.param<double>("max_radial_range_ratio", max_radial_range_ratio, 0.30);
+    nh_.param<double>("min_aspect_ratio", min_aspect_ratio, 1.5);
+    nh_.param<double>("min_circularity", min_circularity, 0.15);
+
+    // 法线估计参数
+    int normal_k_search;
+    nh_.param<int>("normal_k_search", normal_k_search, 50);
+
+    // 墙面移除参数
+    double wall_angle_threshold, wall_distance_threshold, wall_min_keep_ratio;
+    int    wall_max_iterations, max_walls, wall_min_plane_points;
+    nh_.param<double>("wall_angle_threshold", wall_angle_threshold, 15.0);
+    nh_.param<double>("wall_distance_threshold", wall_distance_threshold, 0.02);
+    nh_.param<int>("wall_max_iterations", wall_max_iterations, 5000);
+    nh_.param<int>("max_walls", max_walls, 2);
+    nh_.param<int>("wall_min_plane_points", wall_min_plane_points, 100);
+    nh_.param<double>("wall_min_keep_ratio", wall_min_keep_ratio, 0.15);
+
+    // 虚拟原点参数
+    nh_.param<double>("virtual_base_to_surface", virtual_base_to_surface_, 600.0);
+
+    // 保存模型参数到成员变量（供 setOption 使用）
+    loaded_min_inliers_              = min_inliers;
+    loaded_max_inliers_              = max_inliers;
+    loaded_min_inlier_ratio_         = min_inlier_ratio;
+    loaded_max_inlier_ratio_         = max_inlier_ratio;
+    loaded_min_height_m_             = min_height_m;
+    loaded_min_radius_m_             = min_radius_m;
+    loaded_max_radius_m_             = max_radius_m;
+    loaded_min_radial_rel_std_       = min_radial_rel_std;
+    loaded_max_radial_rel_std_       = max_radial_rel_std;
+    loaded_use_ideal_axis_           = use_ideal_axis;
+    loaded_axis_angle_threshold_deg_ = axis_angle_threshold_deg;
+    loaded_eps_angle_deg_            = eps_angle_deg;
+    loaded_ransac_axis_x_            = ransac_axis_x;
+    loaded_ransac_axis_y_            = ransac_axis_y;
+    loaded_ransac_axis_z_            = ransac_axis_z;
+
+    // RANSAC 拟合参数
+    loaded_normal_distance_weight_    = normal_distance_weight;
+    loaded_ransac_max_iterations_     = ransac_max_iterations;
+    loaded_ransac_distance_threshold_ = ransac_distance_threshold;
+
+    // 圆柱验证阈值
+    loaded_max_radial_range_ratio_ = max_radial_range_ratio;
+    loaded_min_aspect_ratio_       = min_aspect_ratio;
+    loaded_min_circularity_        = min_circularity;
+
+    // 法线估计参数
+    loaded_normal_k_search_ = normal_k_search;
+
+    // 墙面移除参数
+    loaded_wall_angle_threshold_    = wall_angle_threshold;
+    loaded_wall_distance_threshold_ = wall_distance_threshold;
+    loaded_wall_max_iterations_     = wall_max_iterations;
+    loaded_max_walls_               = max_walls;
+    loaded_wall_min_plane_points_   = wall_min_plane_points;
+    loaded_wall_min_keep_ratio_     = wall_min_keep_ratio;
+
+    ROS_INFO("Cylinder detection params loaded:");
+    ROS_INFO("  [Model]  Inliers: [%d, %d], Ratio: [%.3f, %.3f]", min_inliers, max_inliers, min_inlier_ratio,
+             max_inlier_ratio);
+    ROS_INFO("  [Model]  Height: %.2f m, Radius: [%.2f, %.2f] m", min_height_m, min_radius_m, max_radius_m);
+    ROS_INFO("  [Model]  Radial std: [%.3f, %.3f]", min_radial_rel_std, max_radial_rel_std);
+    ROS_INFO(
+        "  [RANSAC] Eps angle: %.1f deg, Axis: [%.3f,%.3f,%.3f], NormalWeight: %.3f, MaxIter: %d, DistThresh: %.4f",
+        eps_angle_deg, ransac_axis_x, ransac_axis_y, ransac_axis_z, normal_distance_weight, ransac_max_iterations,
+        ransac_distance_threshold);
+    ROS_INFO("  [Valid]  RadialRange: %.2f, AspectRatio: %.1f, Circularity: %.2f", max_radial_range_ratio,
+             min_aspect_ratio, min_circularity);
+    ROS_INFO("  [Normal] K-search: %d", normal_k_search);
+    ROS_INFO("  [Wall]   Angle: %.1f deg, Dist: %.3f, MaxIter: %d, MaxWalls: %d, MinPts: %d, KeepRatio: %.2f",
+             wall_angle_threshold, wall_distance_threshold, wall_max_iterations, max_walls, wall_min_plane_points,
+             wall_min_keep_ratio);
+    ROS_INFO("  [Axis]   Use ideal: %s, Threshold: %.1f deg", use_ideal_axis ? "true" : "false",
+             axis_angle_threshold_deg);
+    ROS_INFO("  [VBase]  Virtual base to surface: %.1f mm", virtual_base_to_surface_);
+}
+
+/// @brief 根据工作对象名称切换参数预设，并同步更新 dynamic_reconfigure
+void CylinderFittingROS::switchPreset(const std::string &object) {
+    const std::string ns = "preset_" + object + "/"; // e.g. "preset_A/"
+
+    nh_.param<int>(ns + "min_inliers", loaded_min_inliers_, 300);
+    nh_.param<int>(ns + "max_inliers", loaded_max_inliers_, 600);
+    nh_.param<double>(ns + "min_inlier_ratio", loaded_min_inlier_ratio_, 0.02);
+    nh_.param<double>(ns + "max_inlier_ratio", loaded_max_inlier_ratio_, 0.50);
+    nh_.param<double>(ns + "min_height_m", loaded_min_height_m_, 1.00);
+    nh_.param<double>(ns + "min_radius_m", loaded_min_radius_m_, 0.30);
+    nh_.param<double>(ns + "max_radius_m", loaded_max_radius_m_, 0.40);
+    nh_.param<double>(ns + "min_radial_rel_std", loaded_min_radial_rel_std_, 0.00);
+    nh_.param<double>(ns + "max_radial_rel_std", loaded_max_radial_rel_std_, 0.15);
+    nh_.param<double>(ns + "ransac_axis_x", loaded_ransac_axis_x_, 0.0);
+    nh_.param<double>(ns + "ransac_axis_y", loaded_ransac_axis_y_, 0.0);
+    nh_.param<double>(ns + "ransac_axis_z", loaded_ransac_axis_z_, 1.0);
+    nh_.param<double>(ns + "eps_angle_deg", loaded_eps_angle_deg_, 15.0);
+    nh_.param<double>(ns + "normal_distance_weight", loaded_normal_distance_weight_, 0.05);
+    nh_.param<int>(ns + "ransac_max_iterations", loaded_ransac_max_iterations_, 20000);
+    nh_.param<double>(ns + "ransac_distance_threshold", loaded_ransac_distance_threshold_, 0.015);
+    nh_.param<double>(ns + "max_radial_range_ratio", loaded_max_radial_range_ratio_, 0.30);
+    nh_.param<double>(ns + "min_aspect_ratio", loaded_min_aspect_ratio_, 1.5);
+    nh_.param<double>(ns + "min_circularity", loaded_min_circularity_, 0.15);
+    nh_.param<int>(ns + "normal_k_search", loaded_normal_k_search_, 30);
+    nh_.param<double>(ns + "wall_angle_threshold", loaded_wall_angle_threshold_, 20.0);
+    nh_.param<double>(ns + "wall_distance_threshold", loaded_wall_distance_threshold_, 0.02);
+    nh_.param<int>(ns + "wall_max_iterations", loaded_wall_max_iterations_, 5000);
+    nh_.param<int>(ns + "max_walls", loaded_max_walls_, 3);
+    nh_.param<int>(ns + "wall_min_plane_points", loaded_wall_min_plane_points_, 100);
+    nh_.param<double>(ns + "wall_min_keep_ratio", loaded_wall_min_keep_ratio_, 0.10);
+    nh_.param<bool>(ns + "use_ideal_axis", loaded_use_ideal_axis_, true);
+    nh_.param<double>(ns + "axis_angle_threshold_deg", loaded_axis_angle_threshold_deg_, 15.0);
+    nh_.param<double>(ns + "virtual_base_to_surface", virtual_base_to_surface_, 600.0);
+
+    ROS_WARN("[switchPreset] Loaded preset_%s: radius=[%.2f,%.2f]m, eps=%.1fdeg, axis=[%.3f,%.3f,%.3f], iter=%d",
+             object.c_str(), loaded_min_radius_m_, loaded_max_radius_m_, loaded_eps_angle_deg_, loaded_ransac_axis_x_,
+             loaded_ransac_axis_y_, loaded_ransac_axis_z_, loaded_ransac_max_iterations_);
+
+    // 同步更新 dynamic_reconfigure 面板
+    pcl_process::CylinderDetectionConfig cfg;
+    cfg.min_inliers               = loaded_min_inliers_;
+    cfg.max_inliers               = loaded_max_inliers_;
+    cfg.min_inlier_ratio          = loaded_min_inlier_ratio_;
+    cfg.max_inlier_ratio          = loaded_max_inlier_ratio_;
+    cfg.min_height_m              = loaded_min_height_m_;
+    cfg.min_radius_m              = loaded_min_radius_m_;
+    cfg.max_radius_m              = loaded_max_radius_m_;
+    cfg.min_radial_rel_std        = loaded_min_radial_rel_std_;
+    cfg.max_radial_rel_std        = loaded_max_radial_rel_std_;
+    cfg.ransac_axis_x             = loaded_ransac_axis_x_;
+    cfg.ransac_axis_y             = loaded_ransac_axis_y_;
+    cfg.ransac_axis_z             = loaded_ransac_axis_z_;
+    cfg.eps_angle_deg             = loaded_eps_angle_deg_;
+    cfg.normal_distance_weight    = loaded_normal_distance_weight_;
+    cfg.ransac_max_iterations     = loaded_ransac_max_iterations_;
+    cfg.ransac_distance_threshold = loaded_ransac_distance_threshold_;
+    cfg.max_radial_range_ratio    = loaded_max_radial_range_ratio_;
+    cfg.min_aspect_ratio          = loaded_min_aspect_ratio_;
+    cfg.min_circularity           = loaded_min_circularity_;
+    cfg.normal_k_search           = loaded_normal_k_search_;
+    cfg.wall_angle_threshold      = loaded_wall_angle_threshold_;
+    cfg.wall_distance_threshold   = loaded_wall_distance_threshold_;
+    cfg.wall_max_iterations       = loaded_wall_max_iterations_;
+    cfg.max_walls                 = loaded_max_walls_;
+    cfg.wall_min_plane_points     = loaded_wall_min_plane_points_;
+    cfg.wall_min_keep_ratio       = loaded_wall_min_keep_ratio_;
+    cfg.use_ideal_axis            = loaded_use_ideal_axis_;
+    cfg.axis_angle_threshold_deg  = loaded_axis_angle_threshold_deg_;
+    cfg.virtual_base_to_surface   = virtual_base_to_surface_;
+    dyn_reconf_server_->updateConfig(cfg);
+
+    // 立即应用到 fitter
+    applyFittingParams();
+}
+
+/// @brief dynamic_reconfigure 回调 - 运行时动态更新检测参数
+void CylinderFittingROS::dynamicReconfigureCallback(pcl_process::CylinderDetectionConfig &config, uint32_t level) {
+    ROS_INFO("=== dynamic_reconfigure: Updating cylinder detection parameters (level=%u) ===", level);
+
+    // 更新缓存的模型参数
+    loaded_min_inliers_              = config.min_inliers;
+    loaded_max_inliers_              = config.max_inliers;
+    loaded_min_inlier_ratio_         = config.min_inlier_ratio;
+    loaded_max_inlier_ratio_         = config.max_inlier_ratio;
+    loaded_min_height_m_             = config.min_height_m;
+    loaded_min_radius_m_             = config.min_radius_m;
+    loaded_max_radius_m_             = config.max_radius_m;
+    loaded_min_radial_rel_std_       = config.min_radial_rel_std;
+    loaded_max_radial_rel_std_       = config.max_radial_rel_std;
+    loaded_use_ideal_axis_           = config.use_ideal_axis;
+    loaded_axis_angle_threshold_deg_ = config.axis_angle_threshold_deg;
+    loaded_eps_angle_deg_            = config.eps_angle_deg;
+    loaded_ransac_axis_x_            = config.ransac_axis_x;
+    loaded_ransac_axis_y_            = config.ransac_axis_y;
+    loaded_ransac_axis_z_            = config.ransac_axis_z;
+    virtual_base_to_surface_         = config.virtual_base_to_surface;
+
+    // RANSAC 拟合参数
+    loaded_normal_distance_weight_    = config.normal_distance_weight;
+    loaded_ransac_max_iterations_     = config.ransac_max_iterations;
+    loaded_ransac_distance_threshold_ = config.ransac_distance_threshold;
+
+    // 圆柱验证阈值
+    loaded_max_radial_range_ratio_ = config.max_radial_range_ratio;
+    loaded_min_aspect_ratio_       = config.min_aspect_ratio;
+    loaded_min_circularity_        = config.min_circularity;
+
+    // 法线估计参数
+    loaded_normal_k_search_ = config.normal_k_search;
+
+    // 墙面移除参数
+    loaded_wall_angle_threshold_    = config.wall_angle_threshold;
+    loaded_wall_distance_threshold_ = config.wall_distance_threshold;
+    loaded_wall_max_iterations_     = config.wall_max_iterations;
+    loaded_max_walls_               = config.max_walls;
+    loaded_wall_min_plane_points_   = config.wall_min_plane_points;
+    loaded_wall_min_keep_ratio_     = config.wall_min_keep_ratio;
+
+    // 用当前工艺参数 + 更新后的模型参数重新设置 fitter
+    applyFittingParams();
+
+    ROS_INFO("Cylinder detection parameters updated via dynamic_reconfigure.");
+}
+
+/// @brief 将缓存的模型参数 + 工艺参数合并后设置到 fitter
+void CylinderFittingROS::applyFittingParams() {
+    CylinderFitter::CylinderFitterParams params;
+
+    // 模型参数（来自 YAML / dynamic_reconfigure）
+    params.min_inliers        = loaded_min_inliers_;
+    params.max_inliers        = loaded_max_inliers_;
+    params.min_inlier_ratio   = loaded_min_inlier_ratio_;
+    params.max_inlier_ratio   = loaded_max_inlier_ratio_;
+    params.min_height_m       = loaded_min_height_m_;
+    params.min_radius_m       = loaded_min_radius_m_;
+    params.max_radius_m       = loaded_max_radius_m_;
+    params.min_radial_rel_std = loaded_min_radial_rel_std_;
+    params.max_radial_rel_std = loaded_max_radial_rel_std_;
+
+    // 轴向校正参数（来自 YAML / dynamic_reconfigure）
+    params.eps_angle_deg_            = loaded_eps_angle_deg_;
+    params.ransac_axis_x_            = loaded_ransac_axis_x_;
+    params.ransac_axis_y_            = loaded_ransac_axis_y_;
+    params.ransac_axis_z_            = loaded_ransac_axis_z_;
+    params.use_ideal_axis_           = loaded_use_ideal_axis_;
+    params.axis_angle_threshold_deg_ = loaded_axis_angle_threshold_deg_;
+
+    // RANSAC 拟合参数
+    params.normal_distance_weight_    = loaded_normal_distance_weight_;
+    params.ransac_max_iterations_     = loaded_ransac_max_iterations_;
+    params.ransac_distance_threshold_ = loaded_ransac_distance_threshold_;
+
+    // 圆柱验证阈值
+    params.max_radial_range_ratio_ = loaded_max_radial_range_ratio_;
+    params.min_aspect_ratio_       = loaded_min_aspect_ratio_;
+    params.min_circularity_        = loaded_min_circularity_;
+
+    // 法线估计参数
+    params.normal_k_search_ = loaded_normal_k_search_;
+
+    // 墙面移除参数
+    params.wall_angle_threshold_    = loaded_wall_angle_threshold_;
+    params.wall_distance_threshold_ = loaded_wall_distance_threshold_;
+    params.wall_max_iterations_     = loaded_wall_max_iterations_;
+    params.max_walls_               = loaded_max_walls_;
+    params.wall_min_plane_points_   = loaded_wall_min_plane_points_;
+    params.wall_min_keep_ratio_     = loaded_wall_min_keep_ratio_;
+
+    // 虚拟原点参数
+    params.virtual_base_to_surface_ = virtual_base_to_surface_;
+
+    // 工艺参数（来自 processParamsCallback / setOption）
+    params.slice_distance_ = last_distance_ > 0 ? last_distance_ : 750.0;
+    params.height_         = last_height_ > 0 ? last_height_ : 600.0;
+    params.step_width_     = last_step_width_ > 0 ? last_step_width_ : 300.0;
+    params.step_height_    = last_step_height_ > 0 ? last_step_height_ : 200.0;
+    params.r_initial_      = last_lap_ > 0 ? last_lap_ : 0.5;
+    params.robot_R_arm_    = last_arm_reach_ > 0 ? last_arm_reach_ : 1500.0;
+    params.work_mode_      = last_mode_ > 0 ? last_mode_ : 2;
+    params.k_              = last_k_ >= 0 ? last_k_ : 0;
+
+    this->fitter_->setFittingParams(params);
+}
+
 /// @brief 点云回调
 /// @param msg
 void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {
@@ -36,7 +345,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
             pcl_process::TargetInfo                ti_msg;
 
             // Z轴工作高度约束
-            const double MIN_WORK_HEIGHT_MM = 0;//2000.0; // Z 轴统一抬高的高度 (mm)
+            const double MIN_WORK_HEIGHT_MM = 0; // 2000.0; // Z 轴统一抬高的高度 (mm)
             // const double SPRAY_OFFSET_MM    = 1150.0; // 喷涂工作点偏移距离 (mm)
 
             // 转换圆柱底部和顶部中心 (m -> mm) 到 Base 坐标系
@@ -178,7 +487,7 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
                 // 发布喷涂目标信息
                 spray_target_pose_pub_.publish(ti_msg);
             }
-            // 发布曲臂workPoint消息
+            // 发布曲臂workPoint消息src/pcl_process/src/ibeam_fitting/log.txt
             target_pose_pub_.publish(tpl_msg);
 
             ROS_ERROR("ONCE cylinder fitting completed.");
@@ -198,10 +507,10 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
             process_param_pub_.publish(process_param_msg);
             ROS_ERROR(
                 "Published ProcessParam: distance=%.2f, step_width=%.2f, step_height=%.2f, height=%.2f, lap=%.2f, "
-                "arm_reach=%d, mode=%d, k=%d, w0=%.2f",
+                "arm_reach=%.2f, mode=%d, k=%d, w0=%.2f",
                 process_param_msg.distance, process_param_msg.step_width, process_param_msg.step_height,
-                process_param_msg.height, process_param_msg.lap, process_param_msg.arm_reach, process_param_msg.mode,
-                process_param_msg.k, process_param_msg.w0);
+                process_param_msg.height, process_param_msg.lap, static_cast<double>(process_param_msg.arm_reach),
+                static_cast<int>(process_param_msg.mode), static_cast<int>(process_param_msg.k), process_param_msg.w0);
 
             // 发布面积参数
             pcl_process::SprayInfo spray_info_msg;
@@ -246,22 +555,26 @@ void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam::
     int    k         = msg->k;
     int    w0        = msg->w0;
 
-    bool changed = (distance != last_distance_) || (step_width != last_step_width_) || (height != last_height_) ||
-                   (lap != last_lap_) || (arm_reach != last_arm_reach_) || (mode != last_mode_) || (k != last_k_);
+    auto nanSafeNeq = [](double a, double b) { return std::isnan(a) ? !std::isnan(b) : (a != b); };
+    bool changed    = (distance != last_distance_) || (step_width != last_step_width_) ||
+                   nanSafeNeq(height, last_height_) || (lap != last_lap_) || (arm_reach != last_arm_reach_) ||
+                   (mode != last_mode_) || (k != last_k_);
     if (changed) {
-        ROS_WARN("Process parameters changed: distance=%.2f (was %.2f), step_width=%.2f (was %.2f), step_height=%.2f "
-                 "(was %.2f),lap=%.2f (was %.2f), arm_reach=%.2f (was %.2f), mode=%d (was %d), k=%d (was %d)",
-                 distance, last_distance_, step_width, last_step_width_, height, last_height_, lap, last_lap_,
-                 arm_reach, last_arm_reach_, mode, last_mode_, k, last_k_);
+        ROS_WARN("Cylinder Process parameters changed: distance=%.2f (was %.2f), step_width=%.2f (was %.2f), step_height=%.2f "
+                 "(was %.2f),height=%.2f (was %.2f),lap=%.2f (was %.2f), arm_reach=%.2f (was %.2f), mode=%d (was %d), "
+                 "k=%d (was %d)",
+                 distance, last_distance_, step_width, last_step_width_, step_height, last_step_height_, height,
+                 last_height_, lap, last_lap_, arm_reach, last_arm_reach_, mode, last_mode_, k, last_k_);
 
-        last_distance_   = distance;
-        last_step_width_ = step_width;
-        last_height_     = height;
-        last_lap_        = lap;
-        last_arm_reach_  = arm_reach;
-        last_mode_       = mode;
-        last_k_          = k;
-        last_w0_         = w0;
+        last_distance_    = distance;
+        last_step_width_  = step_width;
+        last_step_height_ = step_height;
+        last_height_      = height;
+        last_lap_         = lap;
+        last_arm_reach_   = arm_reach;
+        last_mode_        = mode;
+        last_k_           = k;
+        last_w0_          = w0;
 
         setOption(distance, step_width, step_height, height, lap, arm_reach, mode, k);
     } else {
@@ -269,19 +582,50 @@ void CylinderFittingROS::processParamsCallback(const pcl_process::ProcessParam::
     }
 }
 
-void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
-    bool prev = processing_.load(std::memory_order_acquire);
-    bool next = msg->data;
+void CylinderFittingROS::workingObjectCallback(const std_msgs::String::ConstPtr &msg) {
+    std::string new_object = msg->data;
+    if (new_object != current_work_object_) {
+        ROS_WARN("Received new working object: %s (previous: %s)", new_object.c_str(), current_work_object_.c_str());
+        current_work_object_ = new_object;
 
-    // 状态未变化时不打印日志，避免刷屏
-    if (prev == next) {
+        // A / D 切换时自动加载对应参数预设
+        if (new_object == "A" || new_object == "D") {
+            ROS_WARN("=== Switching to preset_%s ===", new_object.c_str());
+            switchPreset(new_object);
+        }
+
+        // 工作对象切换时，根据 achieve_work_pose_ 联动更新 processing_ 状态
+        bool cmd_active     = achieve_work_pose_.load(std::memory_order_acquire);
+        bool should_process = cmd_active && (new_object == "A" || new_object == "D");
+        bool was_processing = processing_.load(std::memory_order_acquire);
+        if (should_process && !was_processing) {
+            ROS_WARN("=== Work object switched to %s while active: START cylinder fitting ===", new_object.c_str());
+            processing_.store(true, std::memory_order_release);
+        } else if (!should_process && was_processing) {
+            ROS_WARN("=== Work object switched away from A/D while active: STOP cylinder fitting ===");
+            processing_.store(false, std::memory_order_release);
+        }
+    } else {
+        ROS_DEBUG("Received working object: %s (unchanged)", new_object.c_str());
+    }
+}
+
+void CylinderFittingROS::mainCtlCallback(const std_msgs::Bool::ConstPtr &msg) {
+    bool prev_cmd = achieve_work_pose_.load(std::memory_order_acquire);
+    bool next_cmd = msg->data;
+
+    // 命令未变化时不打印日志，避免刷屏
+    if (prev_cmd == next_cmd) {
         return;
     }
+    achieve_work_pose_.store(next_cmd, std::memory_order_release);
 
-    if (next) {
+    bool should_process = next_cmd && (getCurrentWorkObject() == "A" || getCurrentWorkObject() == "D");
+    bool was_processing = processing_.load(std::memory_order_acquire);
+    if (should_process && !was_processing) {
         ROS_WARN("=== Main control command: START cylinder fitting ===");
         processing_.store(true, std::memory_order_release);
-    } else {
+    } else if (!should_process && was_processing) {
         ROS_WARN("=== Main control command: STOP cylinder fitting ===");
         processing_.store(false, std::memory_order_release);
     }
@@ -305,32 +649,25 @@ void CylinderFittingROS::setOption(const float distance, const float step_width,
     this->fitter_->sliceOptions().height_rings_  = false; // 高度层环线
     this->fitter_->sliceOptions().print_centers_ = true;  // 切片中心点
 
-    this->fitter_->setFittingParams(CylinderFitter::CylinderFitterParams{
-        .min_inliers              = 300,                      // 最小内点数
-        .max_inliers              = 600,                      // 最大内点数
-        .min_inlier_ratio         = 0.02,                     // 最小内点比例
-        .max_inlier_ratio         = 0.50,                     // 最大内点比例
-        .min_height_m             = 1.00,                     // 最小高度（米）
-        .min_radius_m             = 0.30,                     // 最小半径（米）
-        .max_radius_m             = 0.40,                     // 最大半径(米)
-        .min_radial_rel_std       = 0.00,                     // 最小径向相对标准差
-        .max_radial_rel_std       = 0.15,                     // 最大径向相对标准差
-        .slice_distance_          = distance,                 // 喷头工作间距（毫米）
-        .height_                  = height,                   // 工作区域高度(mm)
-        .step_width_              = step_width,               // 工作区域单次喷幅(mm)
-        .step_height_             = step_height,              // 工作区域单次高度(mm)
-        .r_initial_               = lap,                      // 初始搭接比例0.5
-        .robot_R_arm_             = arm_reach,                // 机械臂最大臂长1500mm
-        .virtual_base_to_surface_ = virtual_base_to_surface_, // 虚拟原点到圆柱表面的距离(mm)
-        .work_mode_               = mode,                     // 工作模式 1 手动 2 自动
-        .k_                       = k,                        // 宽度参数
-    });
+    // 更新工艺参数缓存
+    last_distance_    = distance;
+    last_step_width_  = step_width;
+    last_step_height_ = step_height;
+    last_height_      = height;
+    last_lap_         = lap;
+    last_arm_reach_   = arm_reach;
+    last_mode_        = mode;
+    last_k_           = k;
+
+    // 使用 YAML/dynamic_reconfigure 加载的模型参数 + 工艺参数
+    applyFittingParams();
+
     ROS_WARN("Cylinder fitting parameters have been set (virtual_base_to_surface=%.2f mm).", virtual_base_to_surface_);
 }
 
 int main(int argc, char **argv) {
     ros::init(argc, argv, "cylinder_fitting_ros");
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~"); // 使用私有命名空间，匹配 launch 文件中 <rosparam> 加载的参数路径
 
     ROS_INFO("CylinderFittingROS node started, waiting for filtered point clouds and main control commands...");
     CylinderFittingROS node(nh);
