@@ -680,6 +680,25 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
     removeWalls(cloud, cloud_filtered, fp.wall_angle_threshold_, fp.wall_distance_threshold_, fp.wall_max_iterations_);
 
+    // 预过滤：移除 XY 距离小于阈值的点（消除雷达正下方的假目标诱饵）
+    if (fp.min_center_xy_dist_m > 0.0) {
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_xy_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+        double min_xy_sq = fp.min_center_xy_dist_m * fp.min_center_xy_dist_m;
+        for (const auto &pt : cloud_filtered->points) {
+            double xy_sq = pt.x * pt.x + pt.y * pt.y;
+            if (xy_sq >= min_xy_sq) {
+                cloud_xy_filtered->points.push_back(pt);
+            }
+        }
+        cloud_xy_filtered->width = cloud_xy_filtered->points.size();
+        cloud_xy_filtered->height = 1;
+        cloud_xy_filtered->is_dense = cloud_filtered->is_dense;
+        size_t removed = cloud_filtered->size() - cloud_xy_filtered->size();
+        ROS_INFO("XY distance pre-filter: removed %zu points with XY < %.2f m, %zu points remaining",
+                 removed, fp.min_center_xy_dist_m, cloud_xy_filtered->size());
+        cloud_filtered = cloud_xy_filtered;
+    }
+
     if (cloud_filtered->empty()) {
         ROS_WARN("No valid points left after plane removal.");
         cylinder_model_.valid = false;
@@ -843,6 +862,9 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
              (aspect_ratio >= fp.min_aspect_ratio_) ? "ok" : "false");
     ROS_INFO("Circularity:      %.4f [>%.2f] %s", circularity, fp.min_circularity_,
              (circularity >= fp.min_circularity_) ? "ok" : "false");
+    double center_xy_dist = Eigen::Vector2f(proj_center.x(), proj_center.y()).norm();
+    ROS_INFO("Center XY dist:   %.3f m [>%.2f] %s", center_xy_dist, fp.min_center_xy_dist_m,
+             (fp.min_center_xy_dist_m <= 0.0 || center_xy_dist >= fp.min_center_xy_dist_m) ? "ok" : "false");
     ROS_INFO("=========================================");
 
     bool        valid = true;
@@ -872,6 +894,9 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     } else if (circularity < fp.min_circularity_) {
         valid         = false;
         reject_reason = "Circularity too low (not round enough)";
+    } else if (fp.min_center_xy_dist_m > 0.0 && center_xy_dist < fp.min_center_xy_dist_m) {
+        valid         = false;
+        reject_reason = "Cylinder center too close to LiDAR in XY plane";
     }
 
     if (!valid) {

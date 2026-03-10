@@ -54,6 +54,8 @@ void CylinderFittingROS::loadParams() {
     nh_.param<double>("max_radial_range_ratio", max_radial_range_ratio, 0.30);
     nh_.param<double>("min_aspect_ratio", min_aspect_ratio, 1.5);
     nh_.param<double>("min_circularity", min_circularity, 0.15);
+    double min_center_xy_dist_m;
+    nh_.param<double>("min_center_xy_dist_m", min_center_xy_dist_m, 0.0);
 
     // 法线估计参数
     int normal_k_search;
@@ -98,6 +100,7 @@ void CylinderFittingROS::loadParams() {
     loaded_max_radial_range_ratio_ = max_radial_range_ratio;
     loaded_min_aspect_ratio_       = min_aspect_ratio;
     loaded_min_circularity_        = min_circularity;
+    loaded_min_center_xy_dist_m_   = min_center_xy_dist_m;
 
     // 法线估计参数
     loaded_normal_k_search_ = normal_k_search;
@@ -153,6 +156,7 @@ void CylinderFittingROS::switchPreset(const std::string &object) {
     nh_.param<double>(ns + "max_radial_range_ratio", loaded_max_radial_range_ratio_, 0.30);
     nh_.param<double>(ns + "min_aspect_ratio", loaded_min_aspect_ratio_, 1.5);
     nh_.param<double>(ns + "min_circularity", loaded_min_circularity_, 0.15);
+    nh_.param<double>(ns + "min_center_xy_dist_m", loaded_min_center_xy_dist_m_, 0.0);
     nh_.param<int>(ns + "normal_k_search", loaded_normal_k_search_, 30);
     nh_.param<double>(ns + "wall_angle_threshold", loaded_wall_angle_threshold_, 20.0);
     nh_.param<double>(ns + "wall_distance_threshold", loaded_wall_distance_threshold_, 0.02);
@@ -286,6 +290,7 @@ void CylinderFittingROS::applyFittingParams() {
     params.max_radial_range_ratio_ = loaded_max_radial_range_ratio_;
     params.min_aspect_ratio_       = loaded_min_aspect_ratio_;
     params.min_circularity_        = loaded_min_circularity_;
+    params.min_center_xy_dist_m    = loaded_min_center_xy_dist_m_;
 
     // 法线估计参数
     params.normal_k_search_ = loaded_normal_k_search_;
@@ -339,6 +344,9 @@ void CylinderFittingROS::cloudCallback(const sensor_msgs::PointCloud2ConstPtr &m
         ROS_ERROR("Cylinder fitting is currently enabled by main control command.");
 
         if (fitter_->run_with_rslidar(cloud) != -1) {
+            // 立即停止，防止 ros::spin() 单线程延迟导致队列中的下一帧触发重复检测
+            processing_.store(false, std::memory_order_release);
+            ROS_WARN("Cylinder detection done (one-shot), processing stopped.");
             ROS_ERROR("Publishing target pose list...");
             std::vector<CylinderFitter::SliceData> slices = fitter_->getSliceResults();
             pcl_process::TargetPoseList            tpl_msg;
