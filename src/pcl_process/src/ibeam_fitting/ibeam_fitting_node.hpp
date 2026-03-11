@@ -109,6 +109,7 @@ struct IBeamDetectionParams {
     double max_distance = 6.0; // 最大检测距离(米)
     double min_distance = 2.0; // 最小检测距离(米)
     double min_height   = 1.5; // 最小高度(米)
+    double max_height   = 3.5; // 最大高度(米)
 
     // 预处理参数
     double voxel_size    = 0.02; // 体素降采样大小

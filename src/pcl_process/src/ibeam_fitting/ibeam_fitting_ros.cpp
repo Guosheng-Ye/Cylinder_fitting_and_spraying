@@ -8,6 +8,7 @@ void IBeamFittingROS::loadParams() {
     nh_.param<double>("max_distance", params.max_distance, 6.0);
     nh_.param<double>("min_distance", params.min_distance, 2.0);
     nh_.param<double>("min_height", params.min_height, 1.5);
+    nh_.param<double>("max_height", params.max_height, 3.5);
 
     // 预处理参数
     nh_.param<double>("voxel_size", params.voxel_size, 0.02);
@@ -71,8 +72,8 @@ void IBeamFittingROS::loadParams() {
     nh_.param<double>("work_z_offset", fitter_->ibeam_inputs_.work_z_offset, -300.0);
 
     ROS_INFO("Detection params loaded (all %d parameters):", 41);
-    ROS_INFO("  [Spatial]  Distance: [%.1f, %.1f] m, Min height: %.1f m", params.min_distance, params.max_distance,
-             params.min_height);
+    ROS_INFO("  [Spatial]  Distance: [%.1f, %.1f] m, Height: [%.1f, %.1f] m", params.min_distance, params.max_distance,
+             params.min_height, params.max_height);
     ROS_INFO("  [Preprocess]  Voxel: %.3f, SOR neighbors: %d, SOR std: %.2f", params.voxel_size, params.sor_neighbors,
              params.sor_std_ratio);
     ROS_INFO("  [Wall]  Threshold: %.3f, Min points: %d, Max iters: %d", params.wall_distance_threshold,
@@ -105,6 +106,7 @@ void IBeamFittingROS::dynamicReconfigureCallback(pcl_process::IBeamDetectionConf
     params.max_distance = config.max_distance;
     params.min_distance = config.min_distance;
     params.min_height   = config.min_height;
+    params.max_height   = config.max_height;
 
     // 预处理参数
     params.voxel_size    = config.voxel_size;

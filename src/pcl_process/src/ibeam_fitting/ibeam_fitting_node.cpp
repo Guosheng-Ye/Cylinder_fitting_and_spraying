@@ -483,7 +483,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr
     for (const auto &pt : cloud->points) {
         double dist = std::sqrt(pt.x * pt.x + pt.y * pt.y);
         if (dist > detection_params_.min_distance && dist < detection_params_.max_distance &&
-            pt.z > detection_params_.min_height) {
+            pt.z > detection_params_.min_height && pt.z < detection_params_.max_height) {
             filtered->points.push_back(pt);
         }
     }
@@ -2121,19 +2121,29 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
             continue;
         }
 
-        if (new_width > 0.5 || new_height > 0.7) {
-            std::cout << "    扩展后截面异常：" << new_width << " x " << new_height << "m" << std::endl;
+        std::cout << "    扩展结果: L=" << new_length << "m W=" << new_width << "m H=" << new_height << "m"
+                  << " (精细化: L=" << length << " W=" << width << " H=" << height << ")"
+                  << " (W增长比: " << (width > 0 ? new_width / width : -1) << "x"
+                  << ", H增长比: " << (height > 0 ? new_height / height : -1) << "x)" << std::endl;
+
+        // 修改2：基于精细化宽度的相对检查（替代固定阈值 0.5/0.7）
+        double max_width_allowed  = std::max(width * 2.0, 0.35);
+        double max_height_allowed = std::max(height * 2.0, 0.50);
+        if (new_width > max_width_allowed || new_height > max_height_allowed) {
+            std::cout << "    扩展后截面异常：" << new_width << " x " << new_height << "m"
+                      << " (上限: " << max_width_allowed << " x " << max_height_allowed << "m)"
+                      << " (精细化: " << width << " x " << height << "m)" << std::endl;
             continue;
         }
 
         // 扩展长度上限：基于原始聚类长度 ×1.5 或 target_length 取大
         {
             double orig_cluster_length = beam.original_dimensions[0];
-            double max_allowed = std::max(orig_cluster_length * 1.5,
+            double max_allowed = std::max(orig_cluster_length * 1.3,
                                           detection_params_.extend_min_target_length);
             if (new_length > max_allowed) {
                 std::cout << "    扩展长度超限：" << new_length << "m > "
-                          << max_allowed << "m (原始聚类 " << orig_cluster_length << "m × 1.5 或 target "
+                          << max_allowed << "m (原始聚类 " << orig_cluster_length << "m × 1.3 或 target "
                           << detection_params_.extend_min_target_length << "m)，裁剪到上限" << std::endl;
                 double excess = new_length - max_allowed;
                 double cur_u_min = *std::min_element(ext_u.begin(), ext_u.end());
@@ -2269,7 +2279,8 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
                     bool strong_distribution = mid_v_frac > 0.5;
                     // 仅在明确为圆柱特征时裁剪；单纯尺寸偏大需配合密度异常
                     bool abnormal = cylinder_like || (size_abnormal && density_abnormal)
-                                    || sparse_abnormal || strong_distribution;
+                                    || sparse_abnormal || strong_distribution
+                                    || distribution_abnormal;
                     if (abnormal) {
                         std::cout << "    扩展端部裁剪: " << side << "切片#" << s
                                   << " 异常 (cnt=" << cnt << "/" << typ_density
