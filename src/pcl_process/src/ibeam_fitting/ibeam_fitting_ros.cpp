@@ -21,7 +21,7 @@ void IBeamFittingROS::loadParams() {
     nh_.param<int>("max_wall_iterations", params.max_wall_iterations, 3);
 
     // 聚类参数
-    nh_.param<double>("cluster_tolerance", params.cluster_tolerance, 0.18);
+    nh_.param<double>("cluster_tolerance", params.cluster_tolerance, 0.30); // 增大聚类容差，减少初始分割
     nh_.param<int>("min_cluster_size", params.min_cluster_size, 10);
 
     // 聚类合并参数(第一轮 - 严格)
@@ -30,9 +30,9 @@ void IBeamFittingROS::loadParams() {
     nh_.param<double>("merge_min_axis_similarity_strict", params.merge_min_axis_similarity_strict, 0.98);
 
     // 聚类合并参数(第二轮 - 宽松)
-    nh_.param<double>("merge_max_gap_loose", params.merge_max_gap_loose, 0.5);
+    nh_.param<double>("merge_max_gap_loose", params.merge_max_gap_loose, 0.8); // 增大合并间隙，连接更远的断裂
     nh_.param<double>("merge_max_height_diff_loose", params.merge_max_height_diff_loose, 0.15);
-    nh_.param<double>("merge_min_axis_similarity_loose", params.merge_min_axis_similarity_loose, 0.96);
+    nh_.param<double>("merge_min_axis_similarity_loose", params.merge_min_axis_similarity_loose, 0.95); // 略微放宽角度要求
 
     // 工字钢判断阈值
     nh_.param<double>("min_linearity", params.min_linearity, 0.9);
@@ -51,13 +51,13 @@ void IBeamFittingROS::loadParams() {
     nh_.param<double>("refine_min_w_span", params.refine_min_w_span, 0.05);
 
     // 端部裁剪参数
-    nh_.param<double>("trim_outlier_ratio", params.trim_outlier_ratio, 1.3);
+    nh_.param<double>("trim_outlier_ratio", params.trim_outlier_ratio, 1.30); // 进一步放宽至 1.30 (允许30%波动)
     nh_.param<double>("trim_v_shift_threshold", params.trim_v_shift_threshold, 0.05);
     nh_.param<double>("trim_w_shift_threshold", params.trim_w_shift_threshold, 0.08);
-    nh_.param<double>("trim_aspect_diff_ratio", params.trim_aspect_diff_ratio, 0.5);
-    nh_.param<double>("trim_density_ratio_high", params.trim_density_ratio_high, 2.5);
+    nh_.param<double>("trim_aspect_diff_ratio", params.trim_aspect_diff_ratio, 0.35); // 放宽长宽比差异
+    nh_.param<double>("trim_density_ratio_high", params.trim_density_ratio_high, 3.0);
     nh_.param<double>("trim_density_ratio_low", params.trim_density_ratio_low, 0.25);
-    nh_.param<double>("trim_score_ratio", params.trim_score_ratio, 0.3);
+    nh_.param<double>("trim_score_ratio", params.trim_score_ratio, 0.45); // 放宽分数要求，端部形状通常较差
 
     // 扩展参数
     nh_.param<double>("extend_min_target_length", params.extend_min_target_length, 3.5);
