@@ -806,3 +806,144 @@ Eigen::Vector3d surface_point = slice_center_m + normal * (web_thickness / 2.0);
 `max_absolute_gap` 固定为 0.15m，远距离或稀疏点云间隙可能超过此值，导致完整工字钢被错误切断。
 
 **建议**：根据点云平均密度或距离动态调整 `max_absolute_gap`。
+
+---
+
+## ISSUE-008：work_point 使用错误的距离参数（喷枪距离与基座距离混用）
+
+**文件**：`src/pcl_process/src/cylinder_fitting/cylinder_fitting_node.cpp`
+**状态**：已修复
+**发现日期**：2026-03-16
+**修复日期**：2026-03-16
+**相关日志**：`src/pcl_process/src/cal_logs/3-12/log`
+
+---
+
+### 现象
+
+机械臂实际到达的工作点（work_point）与圆柱表面的距离为 **750mm**，但话题 `/process_param_bridge` 中设置的 `distance`（喷涂距离）为 **800mm**，两者不一致。
+
+通过 `statics.py` 分析日志数据验证：
+
+```
+到喷涂中心距离: 750.23 mm   ← 实际 work_point 到 spray_center 的距离
+distance 参数:  800mm       ← 话题设定的喷枪到表面距离
+```
+
+---
+
+### 根本原因：两个距离参数语义混用
+
+代码中存在两个含义不同的距离参数：
+
+| 参数 | 变量名 | 值 | 物理含义 |
+|------|--------|----|---------|
+| 话题 `distance` | `slice_distance_` | 800mm | 喷枪（TCP）到圆柱表面的距离 → 应决定 work_point |
+| YAML `virtual_base_to_surface` | `virtual_base_to_surface_` | 600mm（YAML默认） | 机器人物理基座到圆柱表面的距离 → 应决定虚拟基座位置，且应 > slice_distance_ |
+
+正确的几何关系应为：
+
+```
+圆柱轴心
+   │
+   │← R_cyl ──│ 圆柱表面 (spray_center)
+              │← slice_distance_(800mm) →│  TCP/work_point（喷枪位置）
+              │← virtual_base_to_surface_(应>800mm) →│  机器人物理基座
+```
+
+**Bug 所在（修复前）**：`sliceCylinder()` 计算 work_point 时错误地使用了 `virtual_base_to_surface_`：
+
+```cpp
+// 修复前（错误）：
+sd.work_mm = sd.center_mm + dir * fitting_params_.virtual_base_to_surface_; // 750mm，不是喷涂距离
+```
+
+`virtual_base_to_surface_` 在运行时被 `rqt_reconfigure` 修改为 750mm（YAML 默认 600mm），导致 work_point 距表面 750mm，而不是话题指定的 800mm。
+
+---
+
+### 影响范围
+
+1. **work_point 坐标偏差**：实际偏差 = `virtual_base_to_surface_ - slice_distance_`
+   - 运行时：750 - 800 = **-50mm**（TCP 比预期近 50mm，偏向圆柱表面）
+2. **覆盖角计算不受影响**：`calculate_max_slice_angle` 已正确使用 `slice_distance_` 作为 `D_offset`
+3. **虚拟基座位置不受影响**：`calculateVirtualBaseP_cyl` 正确使用 `virtual_base_to_surface_`
+
+---
+
+### 修复方案（已应用）
+
+#### 修改1：work_point 计算使用正确参数（核心修复）
+
+**文件**：`cylinder_fitting_node.cpp` — `sliceCylinder()` 函数
+
+```cpp
+// 修复前：
+sd.work_mm = sd.center_mm + dir * fitting_params_.virtual_base_to_surface_;
+
+// 修复后：
+sd.work_mm = sd.center_mm + dir * fitting_params_.slice_distance_;
+```
+
+#### 修改2：可视化 work_radius 同步修正（一致性）
+
+**文件**：`cylinder_fitting_node.cpp` — `sliceCylinder()` 函数末尾可视化段 (~L1715)
+
+```cpp
+// 修复前：
+double work_radius_mm = radius_mm + fitting_params_.virtual_base_to_surface_;
+
+// 修复后：
+double work_radius_mm = radius_mm + fitting_params_.slice_distance_;
+```
+
+#### 修改3：可视化 work_point_ring 同步修正（一致性）
+
+**文件**：`cylinder_fitting_node.cpp` — `visualizeCoverageRange()` 函数 (~L2141)
+
+```cpp
+// 修复前：
+double work_point_radius_m = radius_m + fitting_params_.virtual_base_to_surface_ * scale;
+
+// 修复后：
+double work_point_radius_m = radius_m + fitting_params_.slice_distance_ * scale;
+```
+
+#### 修改4：`calculateVirtualBaseP_cyl` 死参数注释澄清
+
+**文件**：`cylinder_fitting_node.cpp` — `calculateVirtualBaseP_cyl()` 函数 (~L298)
+
+函数接收 `work_distance_mm`（= `slice_distance_`）参数但内部未使用，改为使用 `virtual_base_to_surface_`（符合设计：虚拟基座由物理安装距离决定）。新增注释：
+
+```cpp
+// 虚拟基座到轴线的距离 = R_cyl + virtual_base_to_surface_（物理基座安装距离）
+// 注意：参数 work_distance_mm（= slice_distance_，喷涂距离）在此函数中不使用。
+// 虚拟基座位置由 virtual_base_to_surface_ 决定，喷涂距离用于 work_mm 计算（sliceCylinder）。
+double virtual_base_dist = cylinder_radius_mm + fitting_params_.virtual_base_to_surface_;
+```
+
+---
+
+### 参数配置建议
+
+修复后，两个参数各司其职：
+
+| 参数 | 变量 | 建议设置 | 说明 |
+|------|------|---------|------|
+| 话题 `distance` → `slice_distance_` | 800mm（来自话题） | 喷枪到表面距离，直接决定 work_point 位置 |
+| YAML `virtual_base_to_surface` | **> slice_distance_**，如 900~1000mm | 机器人物理基座到表面距离，影响覆盖角计算中的虚拟基座位置 D |
+
+> **重要**：`virtual_base_to_surface_` 应大于 `slice_distance_`，否则物理基座比喷枪更靠近圆柱，几何关系不合理。建议根据实际机械臂安装位置重新标定此参数。
+
+---
+
+### 验证方法
+
+修复后用 `statics.py` 重新分析日志，第 6 节"到喷涂中心距离"应等于话题设定的 `distance`（800mm）：
+
+```
+修复前: 到喷涂中心距离 ≈ 750mm (= virtual_base_to_surface_)
+修复后: 到喷涂中心距离 ≈ 800mm (= slice_distance_ = distance 话题值)
+```
+
+---
