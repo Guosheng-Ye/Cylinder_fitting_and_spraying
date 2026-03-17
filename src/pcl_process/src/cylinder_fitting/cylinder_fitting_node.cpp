@@ -449,6 +449,7 @@ void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 
             temp_cloud = temp_filtered;
             planes_removed++;
+            skipped_planes = 0; // 修复 ISSUE-009：成功移除后重置，确保"连续跳过"语义正确
             if (is_wall) walls_removed++;
             else floors_removed++;
         } else {
@@ -465,7 +466,7 @@ void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                      inliers->indices.size(), angle);
 
             temp_cloud = temp_remaining;
-            planes_removed++;
+            // 修复 ISSUE-009：倾斜平面不计入 planes_removed（不占用墙面移除配额）
             skipped_planes++;
             if (skipped_planes >= max_skip) {
                 break; // 连续跳过太多非目标平面，停止
