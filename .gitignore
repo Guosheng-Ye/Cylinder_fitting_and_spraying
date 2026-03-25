@@ -32,3 +32,6 @@ src/robot_bt_manager/msg/ProcessParam.msg
 src/robot_bt_manager/msg/TargetInfo.msg
 src/robot_bt_manager/msg/TargetPose.msg
 src/robot_bt_manager/msg/TargetPoseList.msg
+src/pcl_process/src/ibeam_fitting/output_verify.py
+.gitignore
+src/pcl_process/src/ibeam_fitting/__pycache__/output_verify.cpython-312.pyc

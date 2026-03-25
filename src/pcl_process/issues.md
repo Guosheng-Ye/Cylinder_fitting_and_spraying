@@ -947,3 +947,123 @@ double virtual_base_dist = cylinder_radius_mm + fitting_params_.virtual_base_to_
 ```
 
 ---
+
+## ISSUE-009：removeWalls 倾斜平面占用检测配额导致墙面去除不完全
+
+**文件**：`src/pcl_process/src/cylinder_fitting/cylinder_fitting_node.cpp` — `removeWalls()` 函数
+**状态**：已修复
+**发现日期**：2026-03-17
+**修复日期**：2026-03-17
+
+---
+
+### 问题描述
+
+`removeWalls` 中，被跳过的倾斜平面（既不是墙也不是地面）仍执行 `planes_removed++`，占用 `max_planes` 配额。
+
+循环条件为 `planes_removed < max_planes`（默认 `max_walls + 2 = 4`），当场景中存在倾斜平面时，真正的墙面/地面还未检测完就提前退出循环。
+
+此外，`skipped_planes` 只递增不重置。注释为"连续跳过太多"，但实际是"**累计**跳过太多"。如果：跳过1个倾斜平面 → 成功移除1面墙 → 再遇1个倾斜平面，`skipped_planes` 就达到 2，触发 `break`。
+
+### 相关代码
+
+```cpp
+// 问题1：倾斜平面应该只增加 skipped_planes，不增加 planes_removed
+temp_cloud = temp_remaining;
+planes_removed++;       // ← 占用了配额
+skipped_planes++;
+
+// 问题2：skipped_planes 在成功移除墙面/地面后应重置为 0
+if (is_wall || is_floor) {
+    // ... 移除平面 ...
+    planes_removed++;
+    // 此处缺少 skipped_planes = 0;
+}
+```
+
+### 修复建议
+
+1. 倾斜平面跳过时不增加 `planes_removed`，仅增加 `skipped_planes`
+2. 成功移除墙面/地面后将 `skipped_planes` 重置为 0（实现真正的"连续跳过"语义）
+
+### 修复方案（已应用）
+
+#### 修改1：倾斜平面不占用 planes_removed 配额
+
+```cpp
+// 修复前：
+temp_cloud = temp_remaining;
+planes_removed++;   // ← 错误：倾斜平面也占用配额
+skipped_planes++;
+
+// 修复后：
+temp_cloud = temp_remaining;
+// 修复 ISSUE-009：倾斜平面不计入 planes_removed（不占用墙面移除配额）
+skipped_planes++;
+```
+
+#### 修改2：成功移除后重置 skipped_planes，实现"连续"语义
+
+```cpp
+// 修复前（缺失重置）：
+temp_cloud = temp_filtered;
+planes_removed++;
+if (is_wall) walls_removed++;
+
+// 修复后：
+temp_cloud = temp_filtered;
+planes_removed++;
+skipped_planes = 0; // 修复 ISSUE-009：成功移除后重置，确保"连续跳过"语义正确
+if (is_wall) walls_removed++;
+```
+
+#### 修复效果验证
+
+| 场景（RANSAC 检出顺序） | 修复前移除墙数 | 修复后移除墙数 |
+|------------------------|--------------|--------------|
+| `[倾斜, 倾斜, 墙, 墙, 墙, 地面]` | **0**（两个连续倾斜触发 break） | **4** ✅ |
+| `[墙, 倾斜, 墙, 倾斜, 墙, 地面]` | **2**（累计 skipped=2 提前 break） | **4** ✅ |
+| `[墙, 墙, 墙, 地面, 倾斜]` | 4（偶然正确） | **4** ✅ |
+
+### 影响范围
+
+- 函数：`removeWalls()`
+- 场景包含倾斜平面时（如斜梁、扶手），墙面去除可能不完全，残留墙面点干扰后续 RANSAC 圆柱拟合
+
+---
+
+## ISSUE-011：sliceCylinder 参考方向硬编码为 -Y 轴，切片朝向不受控
+
+**文件**：`src/pcl_process/src/cylinder_fitting/cylinder_fitting_node.cpp` — `sliceCylinder()` 函数
+**状态**：待修复
+**发现日期**：2026-03-17
+
+---
+
+### 问题描述
+
+切片的参考方向硬编码为 Y 轴负方向：
+
+```cpp
+Eigen::Vector3f ref(0.0f, -1.0f, 0.0f);
+```
+
+180° 的切片区域始终以 -Y 方向为中心展开（即 -90°~+90° 围绕 -Y 方向）。如果机械臂/虚拟基座不在 -Y 侧，所有切片都朝向错误的方向——面向墙壁而非面向机械臂。
+
+### 修复建议
+
+参考方向应根据机械臂（虚拟基座）相对于圆柱的位置**动态确定**，使切片面朝向机械臂：
+
+```cpp
+// 计算从圆柱中心指向虚拟基座的方向在XY平面的投影，作为参考方向
+Eigen::Vector3f to_base = (virtual_base_pos - geo_center).normalized();
+Eigen::Vector3f ref = (to_base - z * to_base.dot(z)).normalized(); // 投影到垂直于轴的平面
+```
+
+### 影响范围
+
+- 所有切片的中心坐标、工作点坐标
+- 当圆柱不在 -Y 方向时，所有切片位于机械臂无法到达的一侧
+
+---
+
