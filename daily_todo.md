@@ -1,3 +1,23 @@
+# 2026-03-10（周二）
+
+## 今日完成
+
+- **修复斜圆柱检测被假目标霸占问题**（ISSUE-003 后续）
+  - 新增 `min_center_xy_dist_m` 参数，过滤雷达正下方假结构（XY<2m），真实目标 XY≈5.65m 不受影响
+  - 更新 preset_D 参数（基于实测 R≈121mm 修正半径范围）
+- **修复工字钢扩展后端部稀疏切片未裁剪问题**（ISSUE-004）
+  - 在 `checkSliceAbnormal` 增加 `sparse_abnormal` 稀疏判定（`cnt < typ_density * 0.4`）
+- **修复工字钢左端 1-2 切片漏检问题**（ISSUE-005）
+  - 根因：ROI `max_distance=6.0m` 截断了工字钢左端点（XY距离 6.0~6.5m）
+  - 修复：`extendShortIBeams` 搜索池从 `roi_cloud` 改为 `filtered_cloud_`（墙面移除后、ROI 过滤前），保留 min_distance/min_height 约束
+- **问题文档维护** — 更新 `issues.md`，记录 ISSUE-004 和 ISSUE-005
+
+## 后续计划
+
+- [ ] 回放 rosbag 验证工字钢左端切片修复效果
+- [ ] 编译验证 `catkin_make --pkg pcl_process`
+
+---
 
 # 2026-03-05（周四）
 

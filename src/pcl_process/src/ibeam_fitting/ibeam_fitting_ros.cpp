@@ -8,6 +8,7 @@ void IBeamFittingROS::loadParams() {
     nh_.param<double>("max_distance", params.max_distance, 6.0);
     nh_.param<double>("min_distance", params.min_distance, 2.0);
     nh_.param<double>("min_height", params.min_height, 1.5);
+    nh_.param<double>("max_height", params.max_height, 3.5);
 
     // 预处理参数
     nh_.param<double>("voxel_size", params.voxel_size, 0.02);
@@ -20,7 +21,7 @@ void IBeamFittingROS::loadParams() {
     nh_.param<int>("max_wall_iterations", params.max_wall_iterations, 3);
 
     // 聚类参数
-    nh_.param<double>("cluster_tolerance", params.cluster_tolerance, 0.18);
+    nh_.param<double>("cluster_tolerance", params.cluster_tolerance, 0.30); // 增大聚类容差，减少初始分割
     nh_.param<int>("min_cluster_size", params.min_cluster_size, 10);
 
     // 聚类合并参数(第一轮 - 严格)
@@ -29,9 +30,9 @@ void IBeamFittingROS::loadParams() {
     nh_.param<double>("merge_min_axis_similarity_strict", params.merge_min_axis_similarity_strict, 0.98);
 
     // 聚类合并参数(第二轮 - 宽松)
-    nh_.param<double>("merge_max_gap_loose", params.merge_max_gap_loose, 0.5);
+    nh_.param<double>("merge_max_gap_loose", params.merge_max_gap_loose, 0.8); // 增大合并间隙，连接更远的断裂
     nh_.param<double>("merge_max_height_diff_loose", params.merge_max_height_diff_loose, 0.15);
-    nh_.param<double>("merge_min_axis_similarity_loose", params.merge_min_axis_similarity_loose, 0.96);
+    nh_.param<double>("merge_min_axis_similarity_loose", params.merge_min_axis_similarity_loose, 0.95); // 略微放宽角度要求
 
     // 工字钢判断阈值
     nh_.param<double>("min_linearity", params.min_linearity, 0.9);
@@ -50,22 +51,29 @@ void IBeamFittingROS::loadParams() {
     nh_.param<double>("refine_min_w_span", params.refine_min_w_span, 0.05);
 
     // 端部裁剪参数
-    nh_.param<double>("trim_outlier_ratio", params.trim_outlier_ratio, 1.3);
+    nh_.param<double>("trim_outlier_ratio", params.trim_outlier_ratio, 1.30); // 进一步放宽至 1.30 (允许30%波动)
     nh_.param<double>("trim_v_shift_threshold", params.trim_v_shift_threshold, 0.05);
     nh_.param<double>("trim_w_shift_threshold", params.trim_w_shift_threshold, 0.08);
-    nh_.param<double>("trim_aspect_diff_ratio", params.trim_aspect_diff_ratio, 0.5);
-    nh_.param<double>("trim_density_ratio_high", params.trim_density_ratio_high, 2.5);
+    nh_.param<double>("trim_aspect_diff_ratio", params.trim_aspect_diff_ratio, 0.35); // 放宽长宽比差异
+    nh_.param<double>("trim_density_ratio_high", params.trim_density_ratio_high, 3.0);
     nh_.param<double>("trim_density_ratio_low", params.trim_density_ratio_low, 0.25);
-    nh_.param<double>("trim_score_ratio", params.trim_score_ratio, 0.3);
+    nh_.param<double>("trim_score_ratio", params.trim_score_ratio, 0.45); // 放宽分数要求，端部形状通常较差
 
     // 扩展参数
     nh_.param<double>("extend_min_target_length", params.extend_min_target_length, 3.5);
+    nh_.param<double>("extend_max_overshoot", params.extend_max_overshoot, 0.5);
 
     fitter_->setParams(params);
 
-    ROS_INFO("Detection params loaded (all %d parameters):", 37);
-    ROS_INFO("  [Spatial]  Distance: [%.1f, %.1f] m, Min height: %.1f m", params.min_distance, params.max_distance,
-             params.min_height);
+    // 机械臂物理参数（加载到 ibeam_inputs_ 中）
+    nh_.param<double>("d_base", fitter_->ibeam_inputs_.d_base, 1100.0);
+    nh_.param<double>("d_work", fitter_->ibeam_inputs_.d_work, 650.0);
+    nh_.param<double>("base_z_offset", fitter_->ibeam_inputs_.base_z_offset, 460.0);
+    nh_.param<double>("work_z_offset", fitter_->ibeam_inputs_.work_z_offset, -300.0);
+
+    ROS_INFO("Detection params loaded (all %d parameters):", 41);
+    ROS_INFO("  [Spatial]  Distance: [%.1f, %.1f] m, Height: [%.1f, %.1f] m", params.min_distance, params.max_distance,
+             params.min_height, params.max_height);
     ROS_INFO("  [Preprocess]  Voxel: %.3f, SOR neighbors: %d, SOR std: %.2f", params.voxel_size, params.sor_neighbors,
              params.sor_std_ratio);
     ROS_INFO("  [Wall]  Threshold: %.3f, Min points: %d, Max iters: %d", params.wall_distance_threshold,
@@ -81,7 +89,11 @@ void IBeamFittingROS::loadParams() {
              params.trim_outlier_ratio, params.trim_v_shift_threshold, params.trim_w_shift_threshold,
              params.trim_aspect_diff_ratio, params.trim_density_ratio_low, params.trim_density_ratio_high,
              params.trim_score_ratio);
-    ROS_INFO("  [Extend]  Min target length: %.1f m", params.extend_min_target_length);
+    ROS_INFO("  [Extend]  Min target length: %.1f m, Max overshoot: %.2f m", params.extend_min_target_length,
+             params.extend_max_overshoot);
+    ROS_INFO("  [Arm]  d_base: %.1f mm, d_work: %.1f mm, base_z_offset: %.1f mm, work_z_offset: %.1f mm",
+             fitter_->ibeam_inputs_.d_base, fitter_->ibeam_inputs_.d_work, fitter_->ibeam_inputs_.base_z_offset,
+             fitter_->ibeam_inputs_.work_z_offset);
 }
 
 /// @brief dynamic_reconfigure 回调 - 运行时动态更新检测参数
@@ -94,6 +106,7 @@ void IBeamFittingROS::dynamicReconfigureCallback(pcl_process::IBeamDetectionConf
     params.max_distance = config.max_distance;
     params.min_distance = config.min_distance;
     params.min_height   = config.min_height;
+    params.max_height   = config.max_height;
 
     // 预处理参数
     params.voxel_size    = config.voxel_size;
@@ -146,6 +159,7 @@ void IBeamFittingROS::dynamicReconfigureCallback(pcl_process::IBeamDetectionConf
 
     // 扩展参数
     params.extend_min_target_length = config.extend_min_target_length;
+    params.extend_max_overshoot     = config.extend_max_overshoot;
 
     fitter_->setParams(params);
     ROS_INFO("Detection parameters updated via dynamic_reconfigure.");
@@ -175,6 +189,10 @@ void IBeamFittingROS::setOption(const float distance, const float step_height, c
         .length               = length,      // length 工作区域长度（mm，mode_length=1时有效
         .mode_theta           = mode_theta,  // mode_theta 喷涂角度模式（1-手动，2-自动）
         .theta                = theta,       // theta 手动模式下喷涂翼板时的角度（透传）
+        .d_base               = fitter_->ibeam_inputs_.d_base,        // 保留 YAML 加载值
+        .d_work               = fitter_->ibeam_inputs_.d_work,        // 保留 YAML 加载值
+        .base_z_offset        = fitter_->ibeam_inputs_.base_z_offset, // 保留 YAML 加载值
+        .work_z_offset        = fitter_->ibeam_inputs_.work_z_offset, // 保留 YAML 加载值
     });
     ROS_WARN(
         "IBeam fitting parameters have been set distance=%.2f mm, step_height=%.2f mm, step_length=%.2f mm, lap=%.2f, "

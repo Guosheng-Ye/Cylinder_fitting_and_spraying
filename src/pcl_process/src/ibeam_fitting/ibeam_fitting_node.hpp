@@ -38,6 +38,7 @@ struct IBeamInputs {
     double d_base        = 1100; // 底座中心到腹板表面的水平距离 (mm)1100
     double d_work        = 650;  // 喷枪物理长度 + 喷涂挂距 (mm)650
     double base_z_offset = 460;  // 机械臂底座中心与腹板中心高度线的高度差 (mm)460
+    double work_z_offset = -300; // 作业点Z方向偏移量 (mm)，负值=降低，正值=升高
 };
 
 // 作业对象参数结构体
@@ -86,7 +87,9 @@ struct IBeamResult {
     double                              aspect_ratio;         // 长宽比
     int                                 point_count;          // 点数
     int                                 original_point_count; // 原始聚类点数
+    Eigen::Vector3d                     original_dimensions;   // 原始聚类 OBB 尺寸（扩展长度限制用）
     pcl::PointCloud<pcl::PointXYZ>::Ptr points;               // 工字钢点云
+    pcl::PointCloud<pcl::PointXYZ>::Ptr original_points;      // 原始聚类点云（扩展搜索用）
 };
 
 // 聚类信息结构体(用于合并判断)
@@ -106,6 +109,7 @@ struct IBeamDetectionParams {
     double max_distance = 6.0; // 最大检测距离(米)
     double min_distance = 2.0; // 最小检测距离(米)
     double min_height   = 1.5; // 最小高度(米)
+    double max_height   = 3.5; // 最大高度(米)
 
     // 预处理参数
     double voxel_size    = 0.02; // 体素降采样大小
@@ -158,6 +162,7 @@ struct IBeamDetectionParams {
 
     // 扩展参数
     double extend_min_target_length = 3.5; // 扩展目标最小长度
+    double extend_max_overshoot     = 1.0; // 扩展时每侧超出原始聚类端点的最大距离(米)
 };
 
 // 高度层定义

@@ -452,37 +452,34 @@ def parse_log_file(filepath: str) -> ParseResult:
                 slice_info.layer = int(layer_match.group(1))
             skipped_count += 1
         else:
-            # 有效切片，获取Target ID
-            target_match = re.search(r'Target ID:\s*(\d+)', following_text)
-            if target_match:
-                slice_info.target_id = int(target_match.group(1))
-            
-            # 从 Cylinder ID 行中获取 Base 坐标系下的坐标
-            # 格式: Cylinder ID: 1,circle:[165.491,8066.396,8185.623],=> Zspray_center:[-92.929,7807.976,8185.623],  => work_point:[-0.517,7.384,8.186], ...
-            # circle 和 Zspray_center 单位是 mm，work_point 单位是 m
+            # 从 Cylinder ID 行中获取 Base 坐标系下的坐标及 ID
+            # 格式: Cylinder ID: N, Work_point:[x,y,z], Circle:[x,y,z], => Spray_center:[x,y,z], Cylinder_axis:[...], Radius: xxx mm, ...
+            # Work_point 单位是 m，Circle 和 Spray_center 单位是 mm
             cylinder_line_match = re.search(
-                r'Cylinder ID:.*?circle:\[([-\d.,\s]+)\].*?Zspray_center:\[([-\d.,\s]+)\].*?work_point:\[([-\d.,\s]+)\]',
+                r'Cylinder ID:\s*(\d+),\s*Work_point:\[([-\d.,\s]+)\],\s*Circle:\[([-\d.,\s]+)\].*?Spray_center:\[([-\d.,\s]+)\]',
                 following_text
             )
             if cylinder_line_match:
+                # 获取 Target ID (即 Cylinder ID)
+                slice_info.target_id = int(cylinder_line_match.group(1))
+                # 解析 work_point (Base坐标系, m)
+                work_base_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(2))
+                if len(work_base_coords) >= 3:
+                    slice_info.work_point = (float(work_base_coords[0]),
+                                             float(work_base_coords[1]),
+                                             float(work_base_coords[2]))
                 # 解析 circle_center (Base坐标系, mm)
-                circle_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(1))
+                circle_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(3))
                 if len(circle_coords) >= 3:
                     slice_info.circle_center_base_mm = (float(circle_coords[0]),
                                                         float(circle_coords[1]),
                                                         float(circle_coords[2]))
                 # 解析 spray_center (Base坐标系, mm)
-                spray_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(2))
+                spray_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(4))
                 if len(spray_coords) >= 3:
                     slice_info.spray_center_base_mm = (float(spray_coords[0]),
                                                        float(spray_coords[1]),
                                                        float(spray_coords[2]))
-                # 解析 work_point (Base坐标系, m)
-                work_base_coords = re.findall(r'[-\d.]+', cylinder_line_match.group(3))
-                if len(work_base_coords) >= 3:
-                    slice_info.work_point = (float(work_base_coords[0]), 
-                                             float(work_base_coords[1]), 
-                                             float(work_base_coords[2]))
             
             slice_info.skipped = False
             valid_count += 1

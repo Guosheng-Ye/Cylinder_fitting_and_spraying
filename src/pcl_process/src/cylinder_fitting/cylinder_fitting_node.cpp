@@ -295,8 +295,9 @@ Eigen::Vector3d CylinderFitter::calculateVirtualBaseP_cyl(const Eigen::Vector3f 
     // 圆柱几何中心（雷达坐标系，单位：m -> mm）
     Eigen::Vector3d geo_center_mm = geo_center_m.cast<double>() * 1000.0;
 
-    // 虚拟原点到圆柱表面的距离（从参数获取）
-    // 虚拟原点到轴线的距离 = R_cyl + virtual_base_to_surface
+    // 虚拟基座到轴线的距离 = R_cyl + virtual_base_to_surface_（物理基座安装距离）
+    // 注意：参数 work_distance_mm（= slice_distance_，喷涂距离）在此函数中不使用。
+    // 虚拟基座位置由 virtual_base_to_surface_ 决定，喷涂距离用于 work_mm 计算（sliceCylinder）。
     double virtual_base_dist = cylinder_radius_mm + fitting_params_.virtual_base_to_surface_;
 
     // 计算虚拟机械臂原点：在XY平面上，从圆柱中心向外延伸
@@ -448,6 +449,7 @@ void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
 
             temp_cloud = temp_filtered;
             planes_removed++;
+            skipped_planes = 0; // 修复 ISSUE-009：成功移除后重置，确保"连续跳过"语义正确
             if (is_wall) walls_removed++;
             else floors_removed++;
         } else {
@@ -464,7 +466,7 @@ void CylinderFitter::removeWalls(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
                      inliers->indices.size(), angle);
 
             temp_cloud = temp_remaining;
-            planes_removed++;
+            // 修复 ISSUE-009：倾斜平面不计入 planes_removed（不占用墙面移除配额）
             skipped_planes++;
             if (skipped_planes >= max_skip) {
                 break; // 连续跳过太多非目标平面，停止
@@ -680,6 +682,25 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
     removeWalls(cloud, cloud_filtered, fp.wall_angle_threshold_, fp.wall_distance_threshold_, fp.wall_max_iterations_);
 
+    // 预过滤：移除 XY 距离小于阈值的点（消除雷达正下方的假目标诱饵）
+    if (fp.min_center_xy_dist_m > 0.0) {
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_xy_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+        double min_xy_sq = fp.min_center_xy_dist_m * fp.min_center_xy_dist_m;
+        for (const auto &pt : cloud_filtered->points) {
+            double xy_sq = pt.x * pt.x + pt.y * pt.y;
+            if (xy_sq >= min_xy_sq) {
+                cloud_xy_filtered->points.push_back(pt);
+            }
+        }
+        cloud_xy_filtered->width = cloud_xy_filtered->points.size();
+        cloud_xy_filtered->height = 1;
+        cloud_xy_filtered->is_dense = cloud_filtered->is_dense;
+        size_t removed = cloud_filtered->size() - cloud_xy_filtered->size();
+        ROS_INFO("XY distance pre-filter: removed %zu points with XY < %.2f m, %zu points remaining",
+                 removed, fp.min_center_xy_dist_m, cloud_xy_filtered->size());
+        cloud_filtered = cloud_xy_filtered;
+    }
+
     if (cloud_filtered->empty()) {
         ROS_WARN("No valid points left after plane removal.");
         cylinder_model_.valid = false;
@@ -843,6 +864,9 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
              (aspect_ratio >= fp.min_aspect_ratio_) ? "ok" : "false");
     ROS_INFO("Circularity:      %.4f [>%.2f] %s", circularity, fp.min_circularity_,
              (circularity >= fp.min_circularity_) ? "ok" : "false");
+    double center_xy_dist = Eigen::Vector2f(proj_center.x(), proj_center.y()).norm();
+    ROS_INFO("Center XY dist:   %.3f m [>%.2f] %s", center_xy_dist, fp.min_center_xy_dist_m,
+             (fp.min_center_xy_dist_m <= 0.0 || center_xy_dist >= fp.min_center_xy_dist_m) ? "ok" : "false");
     ROS_INFO("=========================================");
 
     bool        valid = true;
@@ -872,6 +896,9 @@ void CylinderFitter::fitCylinderPCL(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
     } else if (circularity < fp.min_circularity_) {
         valid         = false;
         reject_reason = "Circularity too low (not round enough)";
+    } else if (fp.min_center_xy_dist_m > 0.0 && center_xy_dist < fp.min_center_xy_dist_m) {
+        valid         = false;
+        reject_reason = "Cylinder center too close to LiDAR in XY plane";
     }
 
     if (!valid) {
@@ -1634,7 +1661,9 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
                 // 2. 计算单位方向向量 dir
                 Eigen::Vector3f dir = v / norm;
                 // 3. 计算工作点 B = A + dir * offset
-                sd.work_mm = sd.center_mm + dir * fitting_params_.virtual_base_to_surface_;
+                // 使用 slice_distance_（喷枪到表面距离），而非 virtual_base_to_surface_（物理基座到表面距离）
+                // 喷枪(TCP)应位于圆柱表面外侧 slice_distance_ 处
+                sd.work_mm = sd.center_mm + dir * fitting_params_.slice_distance_;
             }
 
             { // 可视化工作点
@@ -1685,8 +1714,8 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
     {
         std::lock_guard<std::mutex> lock(viewer_mutex_);
         int                         ring_samples = 96;
-        // 使用 virtual_base_to_surface_ 与 sd.work_mm 计算一致
-        double work_radius_mm = radius_mm + fitting_params_.virtual_base_to_surface_;
+        // 使用 slice_distance_ 与 sd.work_mm 计算一致（TCP = 圆柱表面 + 喷涂距离）
+        double work_radius_mm = radius_mm + fitting_params_.slice_distance_;
         double h_mm           = height_mm / 2.0; // 在中间高度绘制
         for (int k = 0; k < ring_samples; ++k) {
             double          th0 = 2.0 * M_PI * k / ring_samples;
@@ -2112,8 +2141,8 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
                                               "virtual_base_trajectory_ring");
 
     // 10.  工作点轨迹圆（绿色，以圆柱轴线在Z=0的投影为圆心）
-    // 工作点半径 = 圆柱半径 + virtual_base_to_surface_（与 sd.work_mm 计算一致）
-    double work_point_radius_m = radius_m + fitting_params_.virtual_base_to_surface_ * scale;
+    // 工作点半径 = 圆柱半径 + slice_distance_（与 sd.work_mm 计算一致，TCP 在喷涂距离处）
+    double work_point_radius_m = radius_m + fitting_params_.slice_distance_ * scale;
     pcl::PointCloud<pcl::PointXYZ>::Ptr work_point_ring(new pcl::PointCloud<pcl::PointXYZ>);
     for (int j = 0; j <= 72; ++j) {
         double theta = 2.0 * M_PI * j / 72;
@@ -2137,7 +2166,7 @@ void CylinderFitter::visualizeCoverageRange(const Eigen::Vector3d &virtual_base_
     ROS_INFO("Virtual Base Radius: %.3f m (R=%.3f + %.3f)", virtual_base_radius_m, radius_m,
              fitting_params_.virtual_base_to_surface_ * scale);
     ROS_INFO("Work Point Radius: %.3f m (R=%.3f + %.3f)", work_point_radius_m, radius_m,
-             fitting_params_.virtual_base_to_surface_ * scale);
+             fitting_params_.slice_distance_ * scale);
     ROS_INFO("=========================================");
 }
 

@@ -191,6 +191,7 @@ private:
     double loaded_max_radial_range_ratio_{0.30};
     double loaded_min_aspect_ratio_{1.5};
     double loaded_min_circularity_{0.15};
+    double loaded_min_center_xy_dist_m_{0.0};
 
     // 法线估计参数
     int loaded_normal_k_search_{50};

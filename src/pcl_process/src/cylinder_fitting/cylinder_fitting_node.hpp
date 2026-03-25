@@ -130,6 +130,9 @@ public:
         double min_aspect_ratio_{1.5};           // 最小长宽比 H/(2*R)，过小说明太扁不是立柱
         double min_circularity_{0.15};           // 最小圆度评分，低于此值拒绝
 
+        // 圆柱中心距离约束（过滤靠近雷达的假目标）
+        double min_center_xy_dist_m{0.0};        // 圆柱中心XY平面最小水平距离(m), 0=禁用
+
         // 法线估计参数
         int    normal_k_search_{50};             // 法线估计KNN搜索邻居数
 

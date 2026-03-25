@@ -15,7 +15,7 @@
 # Preset A: 粗竖直圆柱 (标准场景)
 # ============================================================================
 preset_A:
-  virtual_base_to_surface:  600.0
+  virtual_base_to_surface:  1100.0
 
   min_inliers:        300
   max_inliers:        600
@@ -53,33 +53,34 @@ preset_A:
   axis_angle_threshold_deg: 15.0
 
 # ============================================================================
-# Preset D: 细长倾斜圆柱 (~45°, R≈89mm, H≈5.6m)
-# 离线分析基准: 轴向[0.7045,-0.0127,0.7096], 中心[-1.98,4.64,3.81]
+# Preset D: 细长倾斜圆柱 (~43°, R≈121mm, H≈5.7m)
+# 离线分析基准 (2026-03-10 rosbag 4帧一致性验证):
+#   R≈121mm, tilt≈43.1°, 轴向[0.683,0.029,0.730], 中心[-2.633,5.003,3.745]
 # ============================================================================
 preset_D:
-  virtual_base_to_surface:  600.0
+  virtual_base_to_surface:  1100.0
 
   min_inliers:        30
   max_inliers:        1000
   min_inlier_ratio:   0.005
   max_inlier_ratio:   0.60
-  min_height_m:       0.50
-  min_radius_m:       0.04
-  max_radius_m:       0.18
+  min_height_m:       0.08   # ISSUE-003: 0.50→0.08，斜圆柱可见段短，实测仅0.09~0.13m
+  min_radius_m:       0.06   # 实测R≈121mm, 下限 R×0.5≈61mm
+  max_radius_m:       0.25   # 实测R≈121mm, 上限 R×2≈242mm
   min_radial_rel_std: 0.00
   max_radial_rel_std: 0.30
 
   ransac_axis_x:            0.707
   ransac_axis_y:            0.0
   ransac_axis_z:            0.707
-  eps_angle_deg:            20.0
+  eps_angle_deg:            30.0   # ISSUE-003: 20→30，增大轴向容差提高命中率
 
   normal_distance_weight:      0.05
   ransac_max_iterations:       150000
-  ransac_distance_threshold:   0.025
+  ransac_distance_threshold:   0.018  # ISSUE-003: 0.015→0.018，基于实测R≈121mm推荐值
 
   max_radial_range_ratio:   1.80
-  min_aspect_ratio:         3.0
+  min_aspect_ratio:         0.5    # ISSUE-003: 3.0→0.5，细圆柱短段长宽比天然小
   min_circularity:          0.20
 
   normal_k_search:          20
@@ -93,13 +94,14 @@ preset_D:
 
   use_ideal_axis:           false
   axis_angle_threshold_deg: 50.0
+  min_center_xy_dist_m:     2.0    # 真实斜圆柱XY≈5m，过滤XY<2m的近处误检结构
 
 # ============================================================================
 # 以下为节点启动时的顶层默认值（与 preset_A 一致），供 dynamic_reconfigure 初始化使用
 # ============================================================================
 
 # ========== 虚拟原点参数 ==========
-virtual_base_to_surface:  600.0  # 虚拟原点到圆柱表面的距离 (mm)
+virtual_base_to_surface:  1100.0  # 机器人基座到圆柱表面的距离 (mm)，应大于 slice_distance_（喷枪到表面距离）
 
 # # ========== 竖直圆柱模型拟合参数 ==========
 min_inliers:        300    # 最小内点数
@@ -151,13 +153,13 @@ axis_angle_threshold_deg: 15.0   # 拟合轴向与竖直方向夹角阈值
 # # 圆柱拟合检测参数配置文件 — 倾斜细长圆柱场景
 # # ============================================================================
 # ============================================================================
-# 离线分析基准 (cylinder_yaml_den.py --tilt-angle 45):
-#   R=0.0889m, H=5.621m, 倾斜=44.8°
-#   轴向: [0.7045, -0.0127, 0.7096]
-#   中心: [-1.9838, 4.6362, 3.8144]
+# 离线分析基准 (2026-03-10 rosbag 4帧一致性验证):
+#   R≈121mm, H≈5.7m, 倾斜≈43.1°
+#   轴向: [0.683, 0.029, 0.730]
+#   中心: [-2.633, 5.003, 3.745]
 # ============================================================================
 # # ========== 圆柱模型拟合参数 ==========
-# ──────────── 基于离线分析: R≈89mm, H≈5.6m, 倾斜≈45° ────────────
+# ──────────── 基于离线分析: R≈121mm, H≈5.7m, 倾斜≈43° ────────────
 
 # ========== 圆柱模型拟合参数 ==========
 # min_inliers:        30     # ↓ 大幅降低: 单帧中稀疏倾斜圆柱可能仅30~100点
@@ -165,8 +167,8 @@ axis_angle_threshold_deg: 15.0   # 拟合轴向与竖直方向夹角阈值
 # min_inlier_ratio:   0.005  # ↓ 降低: 倾斜圆柱在6000+残余点中仅占~3%
 # max_inlier_ratio:   0.60   # 放宽
 # min_height_m:       0.50   # ↓ 降低: 单帧可能只看到部分圆柱（实测完整5.6m）
-# min_radius_m:       0.04   # 基于实测R=89mm, 下限取R*0.5≈44mm
-# max_radius_m:       0.18   # 基于实测R=89mm, 上限取R*2.0≈178mm
+# min_radius_m:       0.06   # 基于实测R=121mm, 下限取R*0.5≈61mm
+# max_radius_m:       0.25   # 基于实测R=121mm, 上限取R*2.0≈242mm
 # min_radial_rel_std: 0.00   # 恢复0: 平面已被去除, 伪环问题已解决
 # max_radial_rel_std: 0.30   # ↑ 放宽: 稀疏点云径向偏差较大（实测0.29）
 

@@ -164,12 +164,14 @@ bool IBeamFitter::detect() {
                 result.id                   = results_.size() + 1;
                 result.center               = refined_center;
                 result.dimensions           = refined_dims;
+                result.original_dimensions  = dimensions; // 原始聚类 OBB 尺寸
                 result.main_axis            = main_axis;
                 result.linearity            = linearity;
                 result.aspect_ratio         = refined_dims[0] / std::max(refined_dims[1], 0.01);
                 result.point_count          = refined_cloud->size();
                 result.original_point_count = cluster_cloud->size();
                 result.points               = refined_cloud;
+                result.original_points      = cluster_cloud;
 
                 // 计算姿态四元数
                 Eigen::Vector3d z_axis(0, 0, 1);
@@ -190,20 +192,106 @@ bool IBeamFitter::detect() {
                 double wh_ratio = width / std::max(thickness, 0.01);
 
                 if (width < 0.50 && wh_ratio >= 0.5 && wh_ratio <= 3.0) {
-                    // 原始截面尺寸合理，直接使用
-                    std::cout << "       精细化失败, 但原始截面尺寸合理(W=" << width << "m, W/H=" << wh_ratio
-                              << "), 使用原始结果" << std::endl;
+                    // 原始截面尺寸合理，但需要连续性分割排除间隙后不相关结构
+                    std::cout << "       精细化失败, 原始截面尺寸合理(W=" << width << "m, W/H=" << wh_ratio
+                              << "), 进行连续性分割..." << std::endl;
+
+                    // 对原始聚类做连续性分割，只保留最大连续段
+                    Eigen::Vector3d u_axis = main_axis.normalized();
+                    const double gap_threshold = 0.20; // 间隙阈值 0.20m
+
+                    // 1. 将点投影到主轴上，记录 (u坐标, 索引)
+                    std::vector<std::pair<double, size_t>> u_indices;
+                    u_indices.reserve(cluster_cloud->size());
+                    for (size_t pi = 0; pi < cluster_cloud->size(); ++pi) {
+                        Eigen::Vector3d p(cluster_cloud->points[pi].x - center[0],
+                                          cluster_cloud->points[pi].y - center[1],
+                                          cluster_cloud->points[pi].z - center[2]);
+                        u_indices.emplace_back(p.dot(u_axis), pi);
+                    }
+                    std::sort(u_indices.begin(), u_indices.end());
+
+                    // 2. 检测间隙，分割为连续段
+                    std::vector<std::pair<size_t, size_t>> segments; // (start, end) in u_indices
+                    size_t seg_start = 0;
+                    for (size_t pi = 1; pi < u_indices.size(); ++pi) {
+                        if (u_indices[pi].first - u_indices[pi - 1].first > gap_threshold) {
+                            segments.emplace_back(seg_start, pi);
+                            seg_start = pi;
+                        }
+                    }
+                    segments.emplace_back(seg_start, u_indices.size());
+
+                    // 3. 找最大连续段
+                    size_t best_seg = 0;
+                    size_t best_count = 0;
+                    for (size_t si = 0; si < segments.size(); ++si) {
+                        size_t cnt = segments[si].second - segments[si].first;
+                        if (cnt > best_count) {
+                            best_count = cnt;
+                            best_seg = si;
+                        }
+                    }
+
+                    // 提取最大连续段的点
+                    pcl::PointCloud<pcl::PointXYZ>::Ptr continuous_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+                    for (size_t pi = segments[best_seg].first; pi < segments[best_seg].second; ++pi) {
+                        continuous_cloud->points.push_back(cluster_cloud->points[u_indices[pi].second]);
+                    }
+                    continuous_cloud->width = continuous_cloud->size();
+                    continuous_cloud->height = 1;
+                    continuous_cloud->is_dense = true;
+
+                    if (segments.size() > 1) {
+                        std::cout << "       连续性分割: " << segments.size() << " 段, 最大段 "
+                                  << continuous_cloud->size() << "/" << cluster_cloud->size() << " 点" << std::endl;
+                    }
+
+                    // 基于连续段重新计算中心和尺寸
+                    Eigen::Vector3d seg_center = Eigen::Vector3d::Zero();
+                    for (const auto &pt : continuous_cloud->points) {
+                        seg_center += Eigen::Vector3d(pt.x, pt.y, pt.z);
+                    }
+                    seg_center /= continuous_cloud->size();
+
+                    // 计算连续段 OBB
+                    double seg_u_min = 1e9, seg_u_max = -1e9;
+                    double seg_v_min = 1e9, seg_v_max = -1e9;
+                    double seg_w_min = 1e9, seg_w_max = -1e9;
+                    Eigen::Vector3d w_axis(0, 0, 1);
+                    Eigen::Vector3d v_axis = w_axis.cross(u_axis).normalized();
+                    for (const auto &pt : continuous_cloud->points) {
+                        Eigen::Vector3d p(pt.x - seg_center[0], pt.y - seg_center[1], pt.z - seg_center[2]);
+                        double pu = p.dot(u_axis);
+                        double pv = p.dot(v_axis);
+                        double pw = p.dot(w_axis);
+                        seg_u_min = std::min(seg_u_min, pu);
+                        seg_u_max = std::max(seg_u_max, pu);
+                        seg_v_min = std::min(seg_v_min, pv);
+                        seg_v_max = std::max(seg_v_max, pv);
+                        seg_w_min = std::min(seg_w_min, pw);
+                        seg_w_max = std::max(seg_w_max, pw);
+                    }
+                    Eigen::Vector3d seg_dims(seg_u_max - seg_u_min,
+                                             seg_v_max - seg_v_min,
+                                             seg_w_max - seg_w_min);
+
+                    std::cout << "       使用连续段结果: " << continuous_cloud->size() << " 点, "
+                              << seg_dims[0] << " x " << seg_dims[1] << " x " << seg_dims[2] << " m"
+                              << std::endl;
 
                     IBeamResult result;
                     result.id                   = results_.size() + 1;
-                    result.center               = center;
-                    result.dimensions           = dimensions;
+                    result.center               = seg_center;
+                    result.dimensions           = seg_dims;
+                    result.original_dimensions  = dimensions; // 原始聚类 OBB 尺寸
                     result.main_axis            = main_axis;
                     result.linearity            = linearity;
-                    result.aspect_ratio         = aspect_ratio;
-                    result.point_count          = cluster_cloud->size();
+                    result.aspect_ratio         = seg_dims[0] / std::max(seg_dims[1], 0.01);
+                    result.point_count          = continuous_cloud->size();
                     result.original_point_count = cluster_cloud->size();
-                    result.points               = cluster_cloud;
+                    result.points               = continuous_cloud;
+                    result.original_points      = cluster_cloud;
                     result.orientation          = Eigen::Quaterniond::Identity();
 
                     results_.push_back(result);
@@ -277,7 +365,7 @@ bool IBeamFitter::detect() {
         ROS_ERROR("[IBeamFitter::detect] FAILED: No I-beams detected");
     }
     ROS_ERROR("%s", std::string(50, '=').c_str());
-
+    
     return !results_.empty();
 }
 
@@ -395,7 +483,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr
     for (const auto &pt : cloud->points) {
         double dist = std::sqrt(pt.x * pt.x + pt.y * pt.y);
         if (dist > detection_params_.min_distance && dist < detection_params_.max_distance &&
-            pt.z > detection_params_.min_height) {
+            pt.z > detection_params_.min_height && pt.z < detection_params_.max_height) {
             filtered->points.push_back(pt);
         }
     }
@@ -1303,7 +1391,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
     double typical_w_span = slice_w_spans.empty() ? 0.4 : slice_w_spans[slice_w_spans.size() / 2];
 
     // 收紧容差：更严格地过滤端部大截面结构
-    double v_tolerance = typical_v_span * 0.4 + 0.025;
+    double v_tolerance = typical_v_span * 0.6 + 0.04;
     double w_tolerance = typical_w_span * 0.45 + 0.03;
 
     std::cout << "       精细化容差: v_tol=" << v_tolerance << ", w_tol=" << w_tolerance << std::endl;
@@ -1362,6 +1450,8 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
     // ============================================================================
     // 端部切片检测：去除端部连接结构（圆柱/法兰/支撑帽）
     // 合并两种检测方式：1. 截面尺寸突变  2. 切片直径突变
+    
+    bool trim_enabled = true; //新增：控制是否启用端部裁剪
     // ============================================================================
     {
         double min_u        = *std::min_element(refined_local_u.begin(), refined_local_u.end());
@@ -1456,7 +1546,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
 
             // 从左端向右扫描
             int left_trim = 0;
-            for (int i = 0; i < num_slices / 3; ++i) {
+            for (int i = 0; i < num_slices / 3 && trim_enabled; ++i) {
                 if (slices[i].point_count < 3) continue;
                 bool is_abnormal = (slices[i].diameter > diam_threshold) || (slices[i].v_span > v_threshold) ||
                                    (slices[i].w_span > w_threshold);
@@ -1471,7 +1561,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
 
             // 从右端向左扫描
             int right_trim = num_slices;
-            for (int i = num_slices - 1; i >= num_slices * 2 / 3; --i) {
+            for (int i = num_slices - 1; i >= num_slices * 2 / 3 && trim_enabled; --i) {
                 if (slices[i].point_count < 3) continue;
                 bool is_abnormal = (slices[i].diameter > diam_threshold) || (slices[i].v_span > v_threshold) ||
                                    (slices[i].w_span > w_threshold);
@@ -1579,6 +1669,7 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
             int ref_end   = num_shape_slices - num_shape_slices / 4;
 
             std::vector<double> ref_scores, ref_v_centers, ref_w_centers, ref_aspects, ref_densities;
+            std::vector<double> ref_v_spans, ref_w_spans; // 新增：参考尺寸
             for (int s = ref_start; s < ref_end; ++s) {
                 if (shape_slices[s].point_count >= 5) {
                     ref_scores.push_back(shape_slices[s].ibeam_score);
@@ -1586,6 +1677,8 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                     ref_w_centers.push_back(shape_slices[s].w_center);
                     ref_aspects.push_back(shape_slices[s].aspect_ratio);
                     ref_densities.push_back(static_cast<double>(shape_slices[s].point_count));
+                    ref_v_spans.push_back(shape_slices[s].v_span);
+                    ref_w_spans.push_back(shape_slices[s].w_span);
                 }
             }
 
@@ -1595,12 +1688,16 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                 std::sort(ref_w_centers.begin(), ref_w_centers.end());
                 std::sort(ref_aspects.begin(), ref_aspects.end());
                 std::sort(ref_densities.begin(), ref_densities.end());
+                std::sort(ref_v_spans.begin(), ref_v_spans.end());
+                std::sort(ref_w_spans.begin(), ref_w_spans.end());
 
                 double ref_score_med   = ref_scores[ref_scores.size() / 2];
                 double ref_v_med       = ref_v_centers[ref_v_centers.size() / 2];
                 double ref_w_med       = ref_w_centers[ref_w_centers.size() / 2];
                 double ref_aspect_med  = ref_aspects[ref_aspects.size() / 2];
                 double ref_density_med = ref_densities[ref_densities.size() / 2];
+                double ref_v_span_med  = ref_v_spans[ref_v_spans.size() / 2]; // 参考宽度中值
+                double ref_w_span_med  = ref_w_spans[ref_w_spans.size() / 2]; // 参考高度中值
 
                 std::cout << "       截面形状一致性: 参考H型分数=" << ref_score_med << ", v_center=" << ref_v_med
                           << ", w_center=" << ref_w_med << ", 长宽比=" << ref_aspect_med << std::endl;
@@ -1650,6 +1747,16 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
                             bad = true;
                             reason += " 密度比=" + std::to_string(density_ratio).substr(0, 4);
                         }
+                    }
+
+                    // 新增条件6: 截面尺寸绝对值偏差 (防止端部变大但长宽比相似的情况)
+                    // 放宽至 25% 的尺寸波动，避免因点云噪声导致的误切
+                    double v_span_diff = std::abs(shape_slices[s].v_span - ref_v_span_med) / std::max(ref_v_span_med, 0.01);
+                    double w_span_diff = std::abs(shape_slices[s].w_span - ref_w_span_med) / std::max(ref_w_span_med, 0.01);
+                    if (v_span_diff > 0.25 || w_span_diff > 0.25) {
+                        bad = true;
+                        reason += " 尺寸偏差(v:" + std::to_string(int(v_span_diff*100)) + 
+                                  "%, w:" + std::to_string(int(w_span_diff*100)) + "%)";
                     }
 
                     return {bad, reason};
@@ -1718,6 +1825,9 @@ bool IBeamFitter::refineIBeamDetection(const pcl::PointCloud<pcl::PointXYZ>::Ptr
             }
         }
     }
+
+    
+    
 
     if (refined_cloud->size() < 30) return false;
 
@@ -1961,22 +2071,54 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
 
         double width  = beam.dimensions[1];
         double height = beam.dimensions[2];
-        // 收紧容差：更严格地过滤异形截面（圆柱等）
-        double v_tolerance   = std::max(0.15, width * 0.6);
-        double w_tolerance   = std::max(0.20, height * 0.6);
-        double search_length = detection_params_.extend_min_target_length * 0.6;
+        // 收紧容差：增加上限约束，防止精细化失败时容差过宽纳入圆柱点
+        double v_tolerance   = std::min(std::max(width * 0.6, 0.15), 0.20);   // 上限 0.20m
+        double w_tolerance   = std::min(std::max(height * 0.6, 0.20), 0.30);  // 上限 0.30m
+
+        // 计算原始聚类在 u 方向的边界，限制扩展不超出太远
+        // 使用 original_points（精细化前的完整聚类）而非 points（精细化后可能被大幅裁剪）
+        double orig_u_min = 1e9, orig_u_max = -1e9;
+        const auto &boundary_cloud = beam.original_points ? beam.original_points : beam.points;
+        for (const auto &pt : boundary_cloud->points) {
+            Eigen::Vector3d p(pt.x - beam.center[0], pt.y - beam.center[1], pt.z - beam.center[2]);
+            double pu = p.dot(u);
+            orig_u_min = std::min(orig_u_min, pu);
+            orig_u_max = std::max(orig_u_max, pu);
+        }
+        double config_overshoot = detection_params_.extend_max_overshoot;
+        double target_length    = detection_params_.extend_min_target_length;
+        double orig_span        = orig_u_max - orig_u_min;
+        // 动态 overshoot: 至少覆盖 (目标长度 - 当前跨度) 的一半，且不小于配置值
+        double effective_overshoot = std::max(config_overshoot, (target_length - orig_span) * 0.5);
+        double u_search_min = orig_u_min - effective_overshoot;
+        double u_search_max = orig_u_max + effective_overshoot;
+        std::cout << "    原始聚类 u 范围: [" << orig_u_min << ", " << orig_u_max
+                  << "], orig_span=" << orig_span 
+                  << ", 搜索范围: [" << u_search_min << ", " << u_search_max
+                  << "] (config_overshoot=" << config_overshoot
+                  << ", effective_overshoot=" << effective_overshoot << ")" << std::endl;
 
         pcl::PointCloud<pcl::PointXYZ>::Ptr extended_cloud(new pcl::PointCloud<pcl::PointXYZ>);
         std::vector<double>                 ext_u, ext_v, ext_w;
 
-        for (const auto &pt : roi_cloud->points) {
+        // 使用 filtered_cloud_（墙面移除后、ROI过滤前）搜索，不受 max_distance 限制        
+        // 允许扩展捕获工字钢远端超出 ROI 距离阈值的点
+        const auto &search_cloud = filtered_cloud_ ? filtered_cloud_ : roi_cloud;
+        for (const auto &pt : search_cloud->points) {
+            // 保留 min_distance 和 min_height 约束（跳过近处噪声和地面点）
+            if (pt.z < detection_params_.min_height)
+                continue;
+            double xy_dist = std::sqrt(pt.x * pt.x + pt.y * pt.y);
+            if (xy_dist < detection_params_.min_distance)
+                continue;
+
             Eigen::Vector3d p(pt.x - beam.center[0], pt.y - beam.center[1], pt.z - beam.center[2]);
             double          local_u = p.dot(u);
             double          local_v = p.dot(v);
             double          local_w = p.dot(w);
 
-            if (std::abs(local_v) < v_tolerance && std::abs(local_w) < w_tolerance && local_u > -search_length &&
-                local_u < search_length) {
+            if (std::abs(local_v) < v_tolerance && std::abs(local_w) < w_tolerance && local_u >= u_search_min &&
+                local_u <= u_search_max) {
                 extended_cloud->points.push_back(pt);
                 ext_u.push_back(local_u);
                 ext_v.push_back(local_v);
@@ -2001,9 +2143,61 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
             continue;
         }
 
-        if (new_width > 0.5 || new_height > 0.7) {
-            std::cout << "    扩展后截面异常：" << new_width << " x " << new_height << "m" << std::endl;
+        std::cout << "    扩展结果: L=" << new_length << "m W=" << new_width << "m H=" << new_height << "m"
+                  << " (精细化: L=" << length << " W=" << width << " H=" << height << ")"
+                  << " (W增长比: " << (width > 0 ? new_width / width : -1) << "x"
+                  << ", H增长比: " << (height > 0 ? new_height / height : -1) << "x)" << std::endl;
+
+        // 修改2：基于精细化宽度的相对检查（替代固定阈值 0.5/0.7）
+        double max_width_allowed  = std::max(width * 2.0, 0.35);
+        double max_height_allowed = std::max(height * 2.0, 0.50);
+        if (new_width > max_width_allowed || new_height > max_height_allowed) {
+            std::cout << "    扩展后截面异常：" << new_width << " x " << new_height << "m"
+                      << " (上限: " << max_width_allowed << " x " << max_height_allowed << "m)"
+                      << " (精细化: " << width << " x " << height << "m)" << std::endl;
             continue;
+        }
+
+        // 扩展长度上限：基于原始聚类长度 ×1.5 或 target_length 取大
+        {
+            double orig_cluster_length = beam.original_dimensions[0];
+            double max_allowed = std::max(orig_cluster_length * 1.3,
+                                          detection_params_.extend_min_target_length);
+            if (new_length > max_allowed) {
+                std::cout << "    扩展长度超限：" << new_length << "m > "
+                          << max_allowed << "m (原始聚类 " << orig_cluster_length << "m × 1.3 或 target "
+                          << detection_params_.extend_min_target_length << "m)，裁剪到上限" << std::endl;
+                double excess = new_length - max_allowed;
+                double cur_u_min = *std::min_element(ext_u.begin(), ext_u.end());
+                double cur_u_max = *std::max_element(ext_u.begin(), ext_u.end());
+                double new_u_min = cur_u_min + excess / 2.0;
+                double new_u_max = cur_u_max - excess / 2.0;
+
+                pcl::PointCloud<pcl::PointXYZ>::Ptr capped(new pcl::PointCloud<pcl::PointXYZ>);
+                std::vector<double> cap_u, cap_v, cap_w;
+                for (size_t k = 0; k < extended_cloud->size(); ++k) {
+                    if (ext_u[k] >= new_u_min && ext_u[k] <= new_u_max) {
+                        capped->points.push_back(extended_cloud->points[k]);
+                        cap_u.push_back(ext_u[k]);
+                        cap_v.push_back(ext_v[k]);
+                        cap_w.push_back(ext_w[k]);
+                    }
+                }
+                if (capped->size() >= 40) {
+                    extended_cloud = capped;
+                    ext_u = cap_u;
+                    ext_v = cap_v;
+                    ext_w = cap_w;
+                    new_length = *std::max_element(ext_u.begin(), ext_u.end()) -
+                                 *std::min_element(ext_u.begin(), ext_u.end());
+                    new_width = *std::max_element(ext_v.begin(), ext_v.end()) -
+                                *std::min_element(ext_v.begin(), ext_v.end());
+                    new_height = *std::max_element(ext_w.begin(), ext_w.end()) -
+                                 *std::min_element(ext_w.begin(), ext_w.end());
+                    std::cout << "    裁剪后: " << new_length << " x " << new_width << " x "
+                              << new_height << "m (" << extended_cloud->size() << " 点)" << std::endl;
+                }
+            }
         }
 
         // 扩展后进行端部切片过滤：去除可能包含的圆柱/法兰
@@ -2013,9 +2207,12 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
             double    ext_length       = ext_u_max - ext_u_min;
             const int num_check_slices = std::max(5, static_cast<int>(ext_length / 0.15));
             double    slice_len        = ext_length / num_check_slices;
+            
+             bool trim_extend_enabled = true;//新增：控制是否启用扩展端部裁剪
 
-            // 收集中间段的典型截面尺寸
+            // 收集中间段的典型截面尺寸和点密度
             std::vector<double> mid_v_spans, mid_w_spans;
+            std::vector<int>    mid_counts;
             int                 start_slice = num_check_slices / 4;
             int                 end_slice   = num_check_slices - num_check_slices / 4;
 
@@ -2036,38 +2233,105 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
                 if (cnt >= 3) {
                     mid_v_spans.push_back(v_max_s - v_min_s);
                     mid_w_spans.push_back(w_max_s - w_min_s);
+                    mid_counts.push_back(cnt);
                 }
             }
 
             if (mid_v_spans.size() >= 2) {
                 std::sort(mid_v_spans.begin(), mid_v_spans.end());
                 std::sort(mid_w_spans.begin(), mid_w_spans.end());
-                double typ_v    = mid_v_spans[mid_v_spans.size() / 2];
-                double typ_w    = mid_w_spans[mid_w_spans.size() / 2];
-                double v_thresh = typ_v * 1.3;
-                double w_thresh = typ_w * 1.3;
+                std::sort(mid_counts.begin(), mid_counts.end());
+                double typ_v       = mid_v_spans[mid_v_spans.size() / 2];
+                double typ_w       = mid_w_spans[mid_w_spans.size() / 2];
+                double typ_density = mid_counts.empty() ? 0.0 : mid_counts[mid_counts.size() / 2];
+                double v_thresh    = typ_v * 1.25; // 恢复至 1.25
+                double w_thresh    = typ_w * 1.25; // 恢复至 1.25
+                // 定义严重异常阈值（例如 1.6 倍），用于直接裁剪大端板
+                double v_gross_thresh = typ_v * 1.6;
+                double w_gross_thresh = typ_w * 1.6;
 
                 // 从两端裁剪
                 double trim_u_min = ext_u_min, trim_u_max = ext_u_max;
 
-                // 左端扫描
-                for (int s = 0; s < num_check_slices / 3; ++s) {
+                // 端部切片异常检测辅助 lambda
+                // 工字钢截面 H 形：翼缘在 v 两侧，中间腹板点稀疏
+                // 圆柱截面弧形：v 方向点均匀分布，中间区域点多
+                auto checkSliceAbnormal = [&](int s, const char *side) -> bool {
                     double s_start = ext_u_min + s * slice_len;
                     double s_end   = s_start + slice_len;
                     double v_min_s = 1e9, v_max_s = -1e9, w_min_s = 1e9, w_max_s = -1e9;
                     int    cnt = 0;
+                    std::vector<double> slice_vs;
                     for (size_t k = 0; k < ext_u.size(); ++k) {
                         if (ext_u[k] >= s_start && ext_u[k] < s_end) {
                             v_min_s = std::min(v_min_s, ext_v[k]);
                             v_max_s = std::max(v_max_s, ext_v[k]);
                             w_min_s = std::min(w_min_s, ext_w[k]);
                             w_max_s = std::max(w_max_s, ext_w[k]);
+                            slice_vs.push_back(ext_v[k]);
                             cnt++;
                         }
                     }
-                    if (cnt >= 3 && ((v_max_s - v_min_s) > v_thresh || (w_max_s - w_min_s) > w_thresh)) {
-                        trim_u_min = s_end;
-                        std::cout << "    扩展端部裁剪: 左端切片#" << s << " 异常" << std::endl;
+                    if (cnt < 3) {
+                        std::cout << "    扩展端部裁剪: " << side << "切片#" << s
+                                  << " 异常 (点数过少: " << cnt << ")" << std::endl;
+                        return true;
+                    }
+
+                    bool size_abnormal    = (v_max_s - v_min_s) > v_thresh || (w_max_s - w_min_s) > w_thresh;
+                    bool density_abnormal = typ_density > 0 && cnt > typ_density * 1.5;
+
+                    // v 分布均匀性检查：中间 1/3 区域点占比
+                    // 工字钢 H 形：中间区域点占比 < 0.2（腹板稀疏）
+                    // 圆柱弧形：中间区域点占比 > 0.35（均匀分布）
+                    bool distribution_abnormal = false;
+                    double mid_v_frac = 0.0;
+                    double v_range = v_max_s - v_min_s;
+                    if (cnt >= 5 && v_range > 0.02) {
+                        double v_lo = v_min_s + v_range / 3.0;
+                        double v_hi = v_max_s - v_range / 3.0;
+                        int mid_cnt = 0;
+                        for (double sv : slice_vs) {
+                            if (sv >= v_lo && sv <= v_hi) mid_cnt++;
+                        }
+                        mid_v_frac = static_cast<double>(mid_cnt) / cnt;
+                        distribution_abnormal = mid_v_frac > 0.35;
+                    }
+
+                    // 圆柱特征：密度高 AND 分布均匀（两者缺一不可）
+                    bool cylinder_like = density_abnormal && distribution_abnormal;
+                    // 端部稀疏：点数远低于典型密度，说明无工字钢结构
+                    bool sparse_abnormal = typ_density > 0 && cnt < typ_density * 0.4;
+                    // 分布严重异常（mid_v_frac > 0.5）独立触发裁剪（圆柱明显特征）
+                    bool strong_distribution = mid_v_frac > 0.5;
+                    
+                    // 分级尺寸判定：
+                    // 1. 严重尺寸异常(gross_size_abnormal): 尺寸极大(>1.6倍)，直接认为是端板/连接件 -> 裁剪
+                    // 2. 轻微尺寸异常(size_abnormal): 尺寸稍大(1.25~1.6倍)，需配合密度异常才裁剪 -> 防止误切噪声
+                    bool gross_size_abnormal = (v_max_s - v_min_s) > v_gross_thresh || (w_max_s - w_min_s) > w_gross_thresh;
+                    
+                    bool abnormal = cylinder_like || gross_size_abnormal 
+                                    || (size_abnormal && density_abnormal) // 恢复：轻微尺寸异常需配合密度异常
+                                    || sparse_abnormal || strong_distribution
+                                    || distribution_abnormal;
+                    if (abnormal) {
+                        std::cout << "    扩展端部裁剪: " << side << "切片#" << s
+                                  << " 异常 (cnt=" << cnt << "/" << typ_density
+                                  << ", mid_v=" << mid_v_frac;
+                        if (size_abnormal) std::cout << ", 尺寸";
+                        if (density_abnormal) std::cout << ", 密度过高";
+                        if (distribution_abnormal) std::cout << ", 分布";
+                        if (sparse_abnormal) std::cout << ", 密度过低";
+                        if (strong_distribution) std::cout << ", 强分布异常";
+                        std::cout << ")" << std::endl;
+                    }
+                    return abnormal;
+                };
+
+                // 左端扫描
+                for (int s = 0; s < num_check_slices / 3; ++s) {
+                    if (checkSliceAbnormal(s, "左端")&& trim_extend_enabled) {
+                        trim_u_min = ext_u_min + (s + 1) * slice_len;
                     } else {
                         break;
                     }
@@ -2075,22 +2339,8 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
 
                 // 右端扫描
                 for (int s = num_check_slices - 1; s >= num_check_slices * 2 / 3; --s) {
-                    double s_start = ext_u_min + s * slice_len;
-                    double s_end   = s_start + slice_len;
-                    double v_min_s = 1e9, v_max_s = -1e9, w_min_s = 1e9, w_max_s = -1e9;
-                    int    cnt = 0;
-                    for (size_t k = 0; k < ext_u.size(); ++k) {
-                        if (ext_u[k] >= s_start && ext_u[k] < s_end) {
-                            v_min_s = std::min(v_min_s, ext_v[k]);
-                            v_max_s = std::max(v_max_s, ext_v[k]);
-                            w_min_s = std::min(w_min_s, ext_w[k]);
-                            w_max_s = std::max(w_max_s, ext_w[k]);
-                            cnt++;
-                        }
-                    }
-                    if (cnt >= 3 && ((v_max_s - v_min_s) > v_thresh || (w_max_s - w_min_s) > w_thresh)) {
-                        trim_u_max = s_start;
-                        std::cout << "    扩展端部裁剪: 右端切片#" << s << " 异常" << std::endl;
+                    if (checkSliceAbnormal(s, "右端")&& trim_extend_enabled) {
+                        trim_u_max = ext_u_min + s * slice_len;
                     } else {
                         break;
                     }
@@ -2142,6 +2392,7 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
         beam.points      = extended_cloud;
     }
 }
+
 
 /// @brief 距离计算
 /// @param point
@@ -2213,7 +2464,6 @@ void IBeamFitter::viewerThread() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
-
 /// @brief 计算机械臂在工字钢上的可喷涂长度
 /// @param R_max 机械臂最大半径 (mm)
 /// @param D_base 底座中心到腹板表面的水平距离 (mm)
@@ -2608,9 +2858,11 @@ void IBeamFitter::sliceIBeam(const IBeamResult &beam_result, const IBeamOutputs 
             Eigen::Vector3d slice_center_m = center + u_offset_m * u + h_offset_m * w;
 
             // 计算作业点坐标 (m)
-            // work_point = surface_point + normal * d_base
-            double          d_base_m     = ibeam_inputs_.d_base / 1000.0;
-            Eigen::Vector3d work_point_m = slice_center_m + normal * d_base_m;
+            // work_point = surface_point + normal * d_base + (0, 0, work_z_offset)
+            double          d_base_m        = ibeam_inputs_.d_base / 1000.0;
+            double          work_z_offset_m = ibeam_inputs_.work_z_offset / 1000.0;
+            Eigen::Vector3d work_point_m    = slice_center_m + normal * d_base_m
+                                            + Eigen::Vector3d(0, 0, work_z_offset_m);
 
             // 填充切片数据
             IBeamSliceData slice;
