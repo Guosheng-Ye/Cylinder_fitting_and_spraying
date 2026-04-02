@@ -51,6 +51,7 @@ preset_A:
 
   use_ideal_axis:           true
   axis_angle_threshold_deg: 15.0
+  slice_start_from_top:     true    # 切片扫描方向: true=从上到下, false=从下到上
 
 # ============================================================================
 # Preset D: 细长倾斜圆柱 (~43°, R≈121mm, H≈5.7m)
@@ -95,6 +96,7 @@ preset_D:
   use_ideal_axis:           false
   axis_angle_threshold_deg: 50.0
   min_center_xy_dist_m:     2.0    # 真实斜圆柱XY≈5m，过滤XY<2m的近处误检结构
+  slice_start_from_top:     true    # 切片扫描方向: true=从上到下, false=从下到上
 
 # ============================================================================
 # 以下为节点启动时的顶层默认值（与 preset_A 一致），供 dynamic_reconfigure 初始化使用
@@ -146,6 +148,7 @@ wall_min_keep_ratio:      0.10   # ↓ 降低: 多平面移除后残余更少
 # ========== 轴向校正参数(切片阶段) ==========
 use_ideal_axis:           true   # 竖直圆柱使用理想竖直轴向 (0, 0, 1)
 axis_angle_threshold_deg: 15.0   # 拟合轴向与竖直方向夹角阈值
+slice_start_from_top:     true   # 切片扫描方向: true=从上到下, false=从下到上
 
 
 

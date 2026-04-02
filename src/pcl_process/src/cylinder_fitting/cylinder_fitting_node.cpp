@@ -1472,18 +1472,24 @@ void CylinderFitter::sliceCylinder(double angle_range_deg, double slice_height_m
     }
 
     int slice_count = 0;
-    // id 从低到高自增，j 采用 S 型扫描顺序
-    // for (int i = 0; i < num_height_slices; ++i) {
-    // id 从高到低自增，j 采用 S 型扫描顺序
-    for (int i = num_height_slices - 1; i >= 0; --i) {
+    // 根据配置决定高度遍历方向
+    bool top_down = fitting_params_.slice_start_from_top_;
+    int i_start = top_down ? (num_height_slices - 1) : 0;
+    int i_end   = top_down ? -1 : num_height_slices;
+    int i_step  = top_down ? -1 : 1;
+
+    ROS_INFO("[Slice] Scan direction: %s", top_down ? "top-down" : "bottom-up");
+
+    for (int i = i_start; i != i_end; i += i_step) {
         double h_mm = (i + 0.5) * (height_mm / num_height_slices);
 
         std::vector<Eigen::Vector3f> layer_centers_mm; // 收集该高度层的切片中心
 
-        // S 型顺序：偶数层J正向，奇数层J反向
+        // S 型顺序：从起始行算起，偶数行J正向，奇数行J反向
+        int row_from_start = top_down ? (num_height_slices - 1 - i) : i;
         for (int j_it = 0; j_it < num_width_slices; ++j_it) {
 
-            int j = (i % 2 == 0) ? j_it : (num_width_slices - 1 - j_it);
+            int j = (row_from_start % 2 == 0) ? j_it : (num_width_slices - 1 - j_it);
 
             double theta = min_theta + (j + 0.5) * (angle_range / num_width_slices);
 

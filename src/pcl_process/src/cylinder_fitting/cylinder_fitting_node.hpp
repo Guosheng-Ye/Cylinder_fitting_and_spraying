@@ -150,6 +150,9 @@ public:
         // 当 use_ideal_axis_ = false 时：始终使用拟合轴向
         bool use_ideal_axis_{true};             // 是否使用理想竖直轴向 (0, 0, 1)
         double axis_angle_threshold_deg_{15.0}; // 拟合轴向与竖直方向夹角阈值 (度)，小于此值时使用理想轴向
+
+        // 切片扫描方向
+        bool slice_start_from_top_{true};      // true=从上到下(默认), false=从下到上
     };
 
     void                        setFittingParams(const CylinderFitterParams &p) { fitting_params_ = p; }

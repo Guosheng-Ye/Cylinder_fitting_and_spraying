@@ -177,6 +177,7 @@ private:
     double loaded_max_radial_rel_std_{0.15};
     bool   loaded_use_ideal_axis_{true};
     double loaded_axis_angle_threshold_deg_{15.0};
+    bool   loaded_slice_start_from_top_{true};
     double loaded_eps_angle_deg_{10.0};
     double loaded_ransac_axis_x_{0.0};
     double loaded_ransac_axis_y_{0.0};

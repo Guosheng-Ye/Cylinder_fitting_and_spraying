@@ -31,6 +31,10 @@ void CylinderFittingROS::loadParams() {
     nh_.param<bool>("use_ideal_axis", use_ideal_axis, true);
     nh_.param<double>("axis_angle_threshold_deg", axis_angle_threshold_deg, 15.0);
 
+    // 切片扫描方向
+    bool slice_start_from_top;
+    nh_.param<bool>("slice_start_from_top", slice_start_from_top, true);
+
     // RANSAC 轴向约束参数
     double eps_angle_deg;
     nh_.param<double>("eps_angle_deg", eps_angle_deg, 10.0);
@@ -86,6 +90,7 @@ void CylinderFittingROS::loadParams() {
     loaded_max_radial_rel_std_       = max_radial_rel_std;
     loaded_use_ideal_axis_           = use_ideal_axis;
     loaded_axis_angle_threshold_deg_ = axis_angle_threshold_deg;
+    loaded_slice_start_from_top_     = slice_start_from_top;
     loaded_eps_angle_deg_            = eps_angle_deg;
     loaded_ransac_axis_x_            = ransac_axis_x;
     loaded_ransac_axis_y_            = ransac_axis_y;
@@ -130,6 +135,7 @@ void CylinderFittingROS::loadParams() {
              wall_min_keep_ratio);
     ROS_INFO("  [Axis]   Use ideal: %s, Threshold: %.1f deg", use_ideal_axis ? "true" : "false",
              axis_angle_threshold_deg);
+    ROS_INFO("  [Slice]  Start from top: %s", slice_start_from_top ? "true" : "false");
     ROS_INFO("  [VBase]  Virtual base to surface: %.1f mm", virtual_base_to_surface_);
 }
 
@@ -166,6 +172,7 @@ void CylinderFittingROS::switchPreset(const std::string &object) {
     nh_.param<double>(ns + "wall_min_keep_ratio", loaded_wall_min_keep_ratio_, 0.10);
     nh_.param<bool>(ns + "use_ideal_axis", loaded_use_ideal_axis_, true);
     nh_.param<double>(ns + "axis_angle_threshold_deg", loaded_axis_angle_threshold_deg_, 15.0);
+    nh_.param<bool>(ns + "slice_start_from_top", loaded_slice_start_from_top_, true);
     nh_.param<double>(ns + "virtual_base_to_surface", virtual_base_to_surface_, 600.0);
 
     ROS_WARN("[switchPreset] Loaded preset_%s: radius=[%.2f,%.2f]m, eps=%.1fdeg, axis=[%.3f,%.3f,%.3f], iter=%d",
@@ -280,6 +287,7 @@ void CylinderFittingROS::applyFittingParams() {
     params.ransac_axis_z_            = loaded_ransac_axis_z_;
     params.use_ideal_axis_           = loaded_use_ideal_axis_;
     params.axis_angle_threshold_deg_ = loaded_axis_angle_threshold_deg_;
+    params.slice_start_from_top_     = loaded_slice_start_from_top_;
 
     // RANSAC 拟合参数
     params.normal_distance_weight_    = loaded_normal_distance_weight_;
