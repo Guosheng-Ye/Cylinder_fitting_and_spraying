@@ -1,0 +1,48 @@
+ERROR] [1765941136.356534712]: [MAX SLICE ANGLE] Cal max slice angle...
+[ERROR] [1765941136.356558272]: Fitted cylinder axis point: [-996.67, -1112.73, 480.37] mm, axis direction: [-0.0051, -0.0248, -0.9997], radius: 350.00 mm
+[INFO] [1765941136.356566180]: ========== calculate_max_slice_angle inputs ==========
+[INFO] [1765941136.356571998]: robot_max_reach (R_arm): 1400.00 mm
+[INFO] [1765941136.356578870]: cylinder_center (P_cyl): [-996.67, -1112.73, 480.37] mm
+[INFO] [1765941136.356583822]: cylinder_axis (V_axis): [-0.0051, -0.0248, -0.9997]
+[INFO] [1765941136.356588880]: cylinder_radius (r_cyl): 350.00 mm
+[INFO] [1765941136.356594362]: offset_dist (D_offset): 700.00 mm
+[INFO] [1765941136.356599203]: regional_height (H): 800.00 mm
+[INFO] [1765941136.356604081]: Work range Z: [80.37, 880.37] mm
+[INFO] [1765941136.356607797]: Delta_Z_max (max vertical distance from base): 880.37 mm
+[INFO] [1765941136.356626598]: Distance from base to cylinder axis (D): 1504.00 mm
+[INFO] [1765941136.356632304]: R_task (r_cyl + D_offset): 1050.00 mm
+[INFO] [1765941136.356637313]: Effective horizontal reach (R_eff): 1088.55 mm
+[INFO] [1765941136.356645349]: cos_alpha: 0.6901, alpha: 46.36 deg, total_angle: 92.73 deg
+[INFO] [1765941136.356650085]: ========== calculate_max_slice_angle DONE ==========
+[INFO] [1765941136.356658921]: Max Coverage Angle (theta_max) calculated: 92.73 deg before optimization
+[INFO] [1765941136.356664346]: ============ Slice Optimization Algorithm ============
+[INFO] [1765941136.356669340]: ----------- Before Optimization -----------
+[INFO] [1765941136.356674232]: [Before] Target Coverage Angle: 180.00 deg (half cylinder)
+[INFO] [1765941136.356679278]: [Before] Max Coverage Angle per Position: 92.7265 deg
+[INFO] [1765941136.356684167]: [Before] Spray Width (d): 300.00 mm
+[INFO] [1765941136.356689658]: [Before] Overlap Ratio (r): 0.5000 (50.0%)
+[INFO] [1765941136.356694446]: [Before] w0 = d * (1 - r) = 150.00 mm (8.1851 deg)
+[INFO] [1765941136.356698506]: [Before] Task Radius (R_task): 1050.00 mm
+[INFO] [1765941136.356704918]: [Step1] Number of robot base positions: N = ceil(180.00 / 92.7265) = 2
+[INFO] [1765941136.356710742]: [Step2] Coverage per position: 90.0000 deg (= 180.00 / 2)
+[INFO] [1765941136.356717699]: [Step3] Number of spray passes per position: k = round(90.0000 / 8.1851) = 11
+[INFO] [1765941136.356722828]: [Step4] Adjusted w0: 8.1818 deg (149.94 mm)
+[INFO] [1765941136.356728559]: [Step5] Adjusted overlap ratio: r = 1 - 149.94 / 300.00 = 0.5002 (50.0%)
+[INFO] [1765941136.356733391]: ----------- After Optimization -----------
+[INFO] [1765941136.356738450]: [Result] Robot Base Positions: 2
+[INFO] [1765941136.356743958]: [Result] Coverage per Position: 90.0000 deg
+[INFO] [1765941136.356748648]: [Result] Spray Passes per Position (k): 11
+[INFO] [1765941136.356753097]: [Result] Total Spray Passes: 22
+[INFO] [1765941136.356758054]: [Result] Adjusted w0: 8.1818 deg (149.94 mm)
+[INFO] [1765941136.356762772]: [Result] Adjusted Overlap Ratio: 0.5002 (50.0%)
+[INFO] [1765941136.356768484]: [Result] Total Coverage: 180.0000 deg (target: 180.00 deg)
+[WARN] [1765941136.356773745]: Overlap ratio INCREASED by 0.02% (from 50.0% to 50.0%) for exact coverage
+[INFO] [1765941136.356779153]: [Verify] k * w0 = 11 * 8.1818 = 90.0000 deg (error: 0.000000 deg)
+[INFO] [1765941136.356783908]: =============================================
+[INFO] [1765941136.356789254]: --- Slice Planning Result ---
+[INFO] [1765941136.356794937]: Status: Success; Optimization done
+[INFO] [1765941136.356799612]: Max Coverage Angle (theta_max): 92.73 deg
+[INFO] [1765941136.356804640]: Optimal Slice Width (w): 90.00 deg
+[INFO] [1765941136.356809822]: Final Overlap Ratio (r): 0.5002 (50.0%)
+[WARN] [1765941136.356815046]: Overlap ratio increased from 50.0% to 50.0% to achieve integer multiple coverage
+[ERROR] [1765941136.356821243]: Calculated max coverage angle: 92.73 deg, optimal slice angle: 90.00 deg, final overlap ratio: 0.50, status: Success; Optimization done

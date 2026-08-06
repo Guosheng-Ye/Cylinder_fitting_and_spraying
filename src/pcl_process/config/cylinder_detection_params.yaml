@@ -1,0 +1,214 @@
+# ============================================================================
+# 圆柱拟合检测参数配置文件
+# 文件: cylinder_detection_params.yaml
+# 说明: 所有参数均可通过此文件修改，无需重新编译
+#       运行时也可通过 rqt_reconfigure 动态调整
+# 用法: roslaunch pcl_process cylinder_fitting.launch
+#
+# 多场景切换说明:
+#   /work_object = "A" → 自动加载 preset_A (粗竖直圆柱)
+#   /work_object = "D" → 自动加载 preset_D (细长倾斜圆柱)
+#   节点启动时以 preset_A 为默认值
+# ============================================================================
+
+# ============================================================================
+# Preset A: 粗竖直圆柱 (标准场景)
+# ============================================================================
+preset_A:
+  virtual_base_to_surface:  1100.0
+
+  min_inliers:        300
+  max_inliers:        600
+  min_inlier_ratio:   0.02
+  max_inlier_ratio:   0.50
+  min_height_m:       1.00
+  min_radius_m:       0.30
+  max_radius_m:       0.40
+  min_radial_rel_std: 0.00
+  max_radial_rel_std: 0.15
+
+  ransac_axis_x:            0.0
+  ransac_axis_y:            0.0
+  ransac_axis_z:            1.0
+  eps_angle_deg:            15.0
+
+  normal_distance_weight:      0.05
+  ransac_max_iterations:       20000
+  ransac_distance_threshold:   0.015
+
+  max_radial_range_ratio:   0.30
+  min_aspect_ratio:         1.5
+  min_circularity:          0.15
+
+  normal_k_search:          30
+
+  wall_angle_threshold:     20.0
+  wall_distance_threshold:  0.02
+  wall_max_iterations:      5000
+  max_walls:                3
+  wall_min_plane_points:    100
+  wall_min_keep_ratio:      0.10
+
+  use_ideal_axis:           true
+  axis_angle_threshold_deg: 15.0
+  slice_start_from_top:     true    # 切片扫描方向: true=从上到下, false=从下到上
+
+# ============================================================================
+# Preset D: 细长倾斜圆柱 (~43°, R≈121mm, H≈5.7m)
+# 离线分析基准 (2026-03-10 rosbag 4帧一致性验证):
+#   R≈121mm, tilt≈43.1°, 轴向[0.683,0.029,0.730], 中心[-2.633,5.003,3.745]
+# ============================================================================
+preset_D:
+  virtual_base_to_surface:  1100.0
+
+  min_inliers:        30
+  max_inliers:        1000
+  min_inlier_ratio:   0.005
+  max_inlier_ratio:   0.60
+  min_height_m:       0.08   # ISSUE-003: 0.50→0.08，斜圆柱可见段短，实测仅0.09~0.13m
+  min_radius_m:       0.06   # 实测R≈121mm, 下限 R×0.5≈61mm
+  max_radius_m:       0.25   # 实测R≈121mm, 上限 R×2≈242mm
+  min_radial_rel_std: 0.00
+  max_radial_rel_std: 0.30
+
+  ransac_axis_x:            0.707
+  ransac_axis_y:            0.0
+  ransac_axis_z:            0.707
+  eps_angle_deg:            30.0   # ISSUE-003: 20→30，增大轴向容差提高命中率
+
+  normal_distance_weight:      0.05
+  ransac_max_iterations:       150000
+  ransac_distance_threshold:   0.018  # ISSUE-003: 0.015→0.018，基于实测R≈121mm推荐值
+
+  max_radial_range_ratio:   1.80
+  min_aspect_ratio:         0.5    # ISSUE-003: 3.0→0.5，细圆柱短段长宽比天然小
+  min_circularity:          0.20
+
+  normal_k_search:          20
+
+  wall_angle_threshold:     20.0
+  wall_distance_threshold:  0.02
+  wall_max_iterations:      5000
+  max_walls:                3
+  wall_min_plane_points:    100
+  wall_min_keep_ratio:      0.10
+
+  use_ideal_axis:           false
+  axis_angle_threshold_deg: 50.0
+  min_center_xy_dist_m:     2.0    # 真实斜圆柱XY≈5m，过滤XY<2m的近处误检结构
+  slice_start_from_top:     true    # 切片扫描方向: true=从上到下, false=从下到上
+
+# ============================================================================
+# 以下为节点启动时的顶层默认值（与 preset_A 一致），供 dynamic_reconfigure 初始化使用
+# ============================================================================
+
+# ========== 虚拟原点参数 ==========
+virtual_base_to_surface:  1100.0  # 机器人基座到圆柱表面的距离 (mm)，应大于 slice_distance_（喷枪到表面距离）
+
+# # ========== 竖直圆柱模型拟合参数 ==========
+min_inliers:        300    # 最小内点数
+max_inliers:        600    # 最大内点数
+min_inlier_ratio:   0.02   # 最小内点比例
+max_inlier_ratio:   0.50   # 最大内点比例
+min_height_m:       1.00   # 最小高度 (米)
+min_radius_m:       0.30   # 最小半径 (米)
+max_radius_m:       0.40   # 最大半径 (米)
+min_radial_rel_std: 0.00   # 最小径向相对标准差
+max_radial_rel_std: 0.15   # 最大径向相对标准差
+
+# ========== RANSAC轴向约束参数 ==========
+# 参考轴: 竖直方向 (0,0,1)
+# eps_angle_deg=15°: 只接受与竖直方向偏差<15°的圆柱
+ransac_axis_x:            0.0    # 参考轴X分量 (竖直=0)
+ransac_axis_y:            0.0    # 参考轴Y分量 (竖直=0)
+ransac_axis_z:            1.0    # 参考轴Z分量 (竖直=1)
+eps_angle_deg:            15.0   # RANSAC轴向容差 (度)
+
+# ========== RANSAC拟合参数 ==========
+normal_distance_weight:      0.05    # ↓ 降低: 法线在平面去除后重估, 但仍有噪声, 低权重更稳定
+ransac_max_iterations:       20000   # ↑ 增加: 确保搜索充分
+ransac_distance_threshold:   0.015   # RANSAC距离阈值 (米)
+
+# ========== 圆柱验证阈值 ==========
+max_radial_range_ratio:   0.30   # 径向极差比上限
+min_aspect_ratio:         1.5    # 最小长宽比 H/(2*R)
+min_circularity:          0.15   # 最小圆度评分
+
+# ========== 法线估计参数 ==========
+normal_k_search:          30     # ↓ 降至30: 法线在平面去除后重估, 点数更少, 用更小K
+
+# ========== 墙面移除参数 ==========
+wall_angle_threshold:     20.0   # ↑ 从15°放宽到20°: 确保地面(angle=13~16°)被稳定检测
+wall_distance_threshold:  0.02   # 墙面RANSAC距离阈值 (米)
+wall_max_iterations:      5000   # 墙面RANSAC最大迭代次数
+max_walls:                3      # ↑ 增至3: 确保多面墙都被移除
+wall_min_plane_points:    100    # 墙面最小平面内点数
+wall_min_keep_ratio:      0.10   # ↓ 降低: 多平面移除后残余更少
+
+# ========== 轴向校正参数(切片阶段) ==========
+use_ideal_axis:           true   # 竖直圆柱使用理想竖直轴向 (0, 0, 1)
+axis_angle_threshold_deg: 15.0   # 拟合轴向与竖直方向夹角阈值
+slice_start_from_top:     true   # 切片扫描方向: true=从上到下, false=从下到上
+
+
+
+# # ============================================================================
+# # 圆柱拟合检测参数配置文件 — 倾斜细长圆柱场景
+# # ============================================================================
+# ============================================================================
+# 离线分析基准 (2026-03-10 rosbag 4帧一致性验证):
+#   R≈121mm, H≈5.7m, 倾斜≈43.1°
+#   轴向: [0.683, 0.029, 0.730]
+#   中心: [-2.633, 5.003, 3.745]
+# ============================================================================
+# # ========== 圆柱模型拟合参数 ==========
+# ──────────── 基于离线分析: R≈121mm, H≈5.7m, 倾斜≈43° ────────────
+
+# ========== 圆柱模型拟合参数 ==========
+# min_inliers:        30     # ↓ 大幅降低: 单帧中稀疏倾斜圆柱可能仅30~100点
+# max_inliers:        1000   # ↑ 放宽: 扩展搜索后可达200+
+# min_inlier_ratio:   0.005  # ↓ 降低: 倾斜圆柱在6000+残余点中仅占~3%
+# max_inlier_ratio:   0.60   # 放宽
+# min_height_m:       0.50   # ↓ 降低: 单帧可能只看到部分圆柱（实测完整5.6m）
+# min_radius_m:       0.06   # 基于实测R=121mm, 下限取R*0.5≈61mm
+# max_radius_m:       0.25   # 基于实测R=121mm, 上限取R*2.0≈242mm
+# min_radial_rel_std: 0.00   # 恢复0: 平面已被去除, 伪环问题已解决
+# max_radial_rel_std: 0.30   # ↑ 放宽: 稀疏点云径向偏差较大（实测0.29）
+
+# # ========== RANSAC轴向约束参数 ==========
+# # 参考轴: 基于离线分析实测轴向 [0.7045, -0.0127, 0.7096] ≈ 45°倾斜
+# # eps_angle_deg: 从参考轴允许偏离的最大角度
+# # 20°合约: 只接受倾斜角在25°~65°范围的圆柱, 竖直(0°)和水平(90°)均被拒绝
+# ransac_axis_x:            0.707  # 参考轴X分量 (实测0.7045, 简化为0.707)
+# ransac_axis_y:            0.0    # 参考轴Y分量 (实测-0.0127, 忽略不计)
+# ransac_axis_z:            0.707  # 参考轴Z分量 (实测0.7096, 简化为0.707)
+# eps_angle_deg:            20.0   # ↓ 收紧至20°: 配合参考轴精确约束, 排除竖直伪圆柱
+
+# # ========== RANSAC拟合参数 ==========
+# # PCL距离公式: d = (1-w)*|geom_dist| + w*|normal_angle_dev|
+# # w=0.35时, 即使点完美在圆柱面上(geom=0), 法线误差必须<0.043rad≈2.4° → 几乎不可能!
+# # w=0.05时, 法线可偏差 0.025/0.05=0.5rad≈28° → 现实可行
+# normal_distance_weight:      0.05    # ↓↓ 关键修复: 残余云中法线仍不纯, 几乎禁用法线权重
+# ransac_max_iterations:       150000  # ↑↑ 增加: 低法线权重+稀疏目标, 需更多迭代
+# ransac_distance_threshold:   0.025   # ↑ 放宽至25mm: 给稀疏圆柱更多容差(R*0.28)
+
+# # ========== 圆柱验证阈值 ==========
+# max_radial_range_ratio:   1.80   # ↑↑ 基于实测: 稀疏点云极差比较大（实测~1.2, 取1.5倍裕量）
+# min_aspect_ratio:         3.0    # 保持: 实测H/2R≈31, 单帧局部也应>3
+# min_circularity:          0.20   # ↑ 基于实测: 完整圆柱圆度=1.0, 单帧局部降低至0.2
+
+# # ========== 法线估计参数 ==========
+# # 注意: 法线现在在平面去除后重新估计, 质量显著提升
+# normal_k_search:          20     # ↓ 降至20: 平面去除后点数减少, 用更小K避免跨结构混合
+
+# # ========== 墙面移除参数 ==========
+# wall_angle_threshold:     20.0   # ↑ 从15°放宽到20°: 地面angle=13~16°, 15°时不稳定
+# wall_distance_threshold:  0.02   # 保持
+# wall_max_iterations:      5000   # 保持
+# max_walls:                3      # ↑ 增至3: 实测场景有3~4面墙
+# wall_min_plane_points:    100    # 保持
+# wall_min_keep_ratio:      0.10   # ↓ 略降低: 多面墙移除后残余更少
+
+# # ========== 轴向校正参数(切片阶段) ==========
+# use_ideal_axis:           false  # ↑ 关键: 倾斜圆柱必须关闭, 使用实际拟合轴向
+# axis_angle_threshold_deg: 50.0   # ↑ 即使启用也不会强制竖直（实测倾斜=44.8°）

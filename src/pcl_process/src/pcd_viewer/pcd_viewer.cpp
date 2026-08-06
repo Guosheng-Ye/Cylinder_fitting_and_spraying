@@ -11,18 +11,21 @@
 class PCDViewer {
 public:
     PCDViewer() {
-        pcd_path_ = "/home/oneko/projects/lidar/ros_airy_work/src/pcd_datas/2.pcd"; // 修改路径
+        pcd_path_ = "/home/oneko/projects/ros_airy_work/ros_bag/113pcd/1768291167.129343748.pcd"; // 修改路径
         viewer_.reset(new pcl::visualization::PCLVisualizer("PCD Viewer"));
         viewer_->setBackgroundColor(0, 0, 0);
         viewer_->addCoordinateSystem(1.0);
         viewer_->initCameraParameters();
     }
 
+    enum class FilterAxis { X, Y };
+
     int run() {
         // 尝试按 PointXYZI 加载
         if (pcl::io::loadPCDFile<pcl::PointXYZI>(pcd_path_, *cloud_i_) == 0) {
             std::cout << "Loaded as PointXYZI, points=" << cloud_i_->size() << std::endl;
-            filterByAngleI(30.0); // 保留 ±30° 数据
+            // filterByAngleI(50.0, FilterAxis::X); // 保留 +X 轴 ±50° 数据
+            filterByAngleI(50.0, FilterAxis::Y); // 保留 +Y 轴 ±50° 数据
             colorByDistanceFromCloudI();
             show();
             return 0;
@@ -31,7 +34,8 @@ public:
         // 回退到 PointXYZ
         if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_path_, *cloud_) == 0) {
             std::cout << "Loaded as PointXYZ, points=" << cloud_->size() << std::endl;
-            filterByAngle(30.0); // 保留 ±30° 数据
+            // filterByAngle(30.0, FilterAxis::X); // 保留 +X 轴 ±30° 数据
+            filterByAngle(30.0, FilterAxis::Y); // 保留 +Y 轴 ±30° 数据
             colorByDistanceFromCloud();
             show();
             return 0;
@@ -61,27 +65,41 @@ private:
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_{new pcl::PointCloud<pcl::PointXYZRGB>};
 
     // === 新增: 角度过滤函数 ===
-    void filterByAngle(double degree_limit) {
+    void filterByAngle(double degree_limit, FilterAxis axis) {
         pcl::PointCloud<pcl::PointXYZ>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZ>);
         double                              rad_limit = degree_limit * M_PI / 180.0;
+        std::string                         axis_name = (axis == FilterAxis::X) ? "+X" : "+Y";
+
         for (const auto &p : cloud_->points) {
-            double angle = std::atan2(p.y, p.x);
+            double angle = 0.0;
+            if (axis == FilterAxis::X) {
+                angle = std::atan2(p.y, p.x);
+            } else {
+                angle = std::atan2(p.x, p.y);
+            }
             if (std::abs(angle) <= rad_limit) filtered->push_back(p);
         }
-        std::cout << "Filtered to " << filtered->size() << " points within ±" << degree_limit << "° around +X axis."
-                  << std::endl;
+        std::cout << "Filtered to " << filtered->size() << " points within ±" << degree_limit << "° around " << axis_name
+                  << " axis." << std::endl;
         cloud_.swap(filtered);
     }
 
-    void filterByAngleI(double degree_limit) {
+    void filterByAngleI(double degree_limit, FilterAxis axis) {
         pcl::PointCloud<pcl::PointXYZI>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZI>);
         double                               rad_limit = degree_limit * M_PI / 180.0;
+        std::string                          axis_name = (axis == FilterAxis::X) ? "+X" : "+Y";
+
         for (const auto &p : cloud_i_->points) {
-            double angle = std::atan2(p.y, p.x);
+            double angle = 0.0;
+            if (axis == FilterAxis::X) {
+                angle = std::atan2(p.y, p.x);
+            } else {
+                angle = std::atan2(p.x, p.y);
+            }
             if (std::abs(angle) <= rad_limit) filtered->push_back(p);
         }
-        std::cout << "Filtered to " << filtered->size() << " points within ±" << degree_limit << "° around +X axis."
-                  << std::endl;
+        std::cout << "Filtered to " << filtered->size() << " points within ±" << degree_limit << "° around " << axis_name
+                  << " axis." << std::endl;
         cloud_i_.swap(filtered);
     }
 

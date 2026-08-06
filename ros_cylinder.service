@@ -1,0 +1,23 @@
+[Unit]
+Description=ROS Cylinder Fitting Node
+After=network-online.target display-manager.service
+Wants=network-online.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+User=oneko
+Group=oneko
+WorkingDirectory=/home/oneko/projects/ros_airy_work
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/oneko/.Xauthority"
+ExecStartPre=/bin/sleep 5
+ExecStart=/bin/bash /home/oneko/projects/ros_airy_work/ros_cylinder.sh
+ExecStop=/bin/bash -c "killall -9 roscore rosmaster roslaunch rosout 2>/dev/null; exit 0"
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

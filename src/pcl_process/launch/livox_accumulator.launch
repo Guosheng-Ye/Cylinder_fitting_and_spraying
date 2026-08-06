@@ -1,0 +1,48 @@
+<launch>
+    <!-- 
+        Livox 点云累积测试启动文件
+        使用方法：
+        1. 先播放 rosbag: rosbag play 2026-02-04-07-43-48.bag
+        2. 启动本文件: roslaunch pcl_process livox_accumulator.launch
+        3. 使用 rviz 查看: 订阅 /livox/accumulated 话题
+    -->
+
+    <!-- Livox 点云累积节点 -->
+    <node pkg="pcl_process" type="livox_accumulator_node" name="livox_accumulator" output="screen">
+        <!-- 累积帧数：累积多少帧点云后输出 -->
+        <param name="accumulate_frames" type="int" value="10"/>
+        
+        <!-- 体素滤波器分辨率 (米)，用于降采样防止点云过于密集 -->
+        <param name="voxel_size" type="double" value="0.05"/>
+        
+        <!-- 是否启用体素滤波 -->
+        <param name="enable_voxel_filter" type="bool" value="true"/>
+        
+        <!-- 输入话题 -->
+        <param name="input_topic" type="string" value="/livox/lidar"/>
+        
+        <!-- 输出话题 -->
+        <param name="output_topic" type="string" value="/livox/accumulated"/>
+        
+        <!-- 累积点云发布频率 (Hz) -->
+        <param name="publish_rate" type="double" value="10.0"/>
+        
+        <!-- ========== 角度过滤参数 (与 rslidar_process 保持一致) ========== -->
+        <!-- 是否启用角度过滤 (只保留前向扇形区域) -->
+        <param name="enable_angle_filter" type="bool" value="true"/>
+        
+        <!-- 角度过滤范围 (度): ±45度 = 前向90度扇形 -->
+        <param name="angle_filter_deg" type="double" value="45.0"/>
+        
+        <!-- 前向轴: Livox 默认 "x" 为前向, RSLidar 默认 "y" 为前向 -->
+        <param name="forward_axis" type="string" value="x"/>
+    </node>
+
+    <!-- 可选：启动 RViz 可视化 -->
+    <!-- 
+    <node pkg="rviz" type="rviz" name="rviz" 
+          args="-d $(find pcl_process)/config/livox_view.rviz" 
+          required="false"/>
+    -->
+
+</launch>
