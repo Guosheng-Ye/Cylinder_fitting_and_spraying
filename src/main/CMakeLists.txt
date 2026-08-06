@@ -10,13 +10,13 @@ find_package(catkin REQUIRED COMPONENTS
 	pcl_conversions
 	sensor_msgs
 	std_msgs
-	rslidar_sdk
+	#rslidar_sdk
 )
 
 find_package(PCL REQUIRED)
 
 catkin_package(
-	CATKIN_DEPENDS roscpp pcl_ros pcl_conversions sensor_msgs std_msgs rslidar_sdk
+	CATKIN_DEPENDS roscpp pcl_ros pcl_conversions sensor_msgs std_msgs #rslidar_sdk
 )
 
 include_directories(

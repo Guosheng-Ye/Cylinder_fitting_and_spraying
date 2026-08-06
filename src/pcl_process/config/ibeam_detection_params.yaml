@@ -1,0 +1,73 @@
+# ============================================================================
+# 工字钢检测参数配置文件
+# 文件: ibeam_detection_params.yaml
+# 说明: 所有参数均可通过此文件修改，无需重新编译
+#       运行时也可通过 rqt_reconfigure 动态调整
+# 用法: roslaunch pcl_process ibeam_fitting.launch
+# ============================================================================
+
+# ========== 空间过滤参数 ==========
+max_distance: 6.0      # 最大检测距离 (米)
+min_distance: 2.0      # 最小检测距离 (米)
+min_height:   1.5      # 最小高度 (米)
+max_height:   3.5      # 最大高度 (米)
+
+# ========== 预处理参数 ==========
+voxel_size:    0.02    # 体素降采样大小 (米)
+sor_neighbors: 20      # 统计滤波邻居数
+sor_std_ratio: 1.5     # 统计滤波标准差比
+
+# ========== 墙面移除参数 ==========
+wall_distance_threshold: 0.08  # RANSAC距离阈值 (米)
+min_wall_points:         500   # 最小墙面点数
+max_wall_iterations:     3     # 最大墙面移除迭代次数
+
+# ========== 聚类参数 ==========
+cluster_tolerance: 0.18  # DBSCAN聚类容差 (米)
+min_cluster_size:  10    # 最小聚类点数
+
+# ========== 聚类合并参数(第一轮 - 严格) ==========
+merge_max_gap_strict:             0.15  # 最大间隙 (米)
+merge_max_height_diff_strict:     0.10  # 最大高度差 (米)
+merge_min_axis_similarity_strict: 0.98  # 最小轴向相似度
+
+# ========== 聚类合并参数(第二轮 - 宽松) ==========
+merge_max_gap_loose:             0.5   # 最大间隙 (米)
+merge_max_height_diff_loose:     0.15  # 最大高度差 (米)
+merge_min_axis_similarity_loose: 0.96  # 最小轴向相似度
+
+# ========== 工字钢判断阈值 ==========
+min_linearity:    0.9    # 最小线性度
+min_length:       1.5    # 最小长度 (米)
+min_aspect_ratio: 2.5    # 最小长宽比
+max_axis_z:       0.1    # 主轴Z分量最大值 (水平性判断)
+min_width:        0.1    # 最小宽度 (米)
+max_width:        1.2    # 最大宽度 (米)
+min_thickness:    0.03   # 最小厚度 (米)
+max_thickness:    0.8    # 最大厚度 (米)
+
+# ========== 精细化参数 ==========
+refine_max_v_span: 0.50  # 最大翼缘宽度 (米)
+refine_max_w_span: 0.60  # 最大截面高度 (米)
+refine_min_v_span: 0.10  # ISSUE-007: 0.30→0.10，端部稀疏时v_span天然偏小，过大会丢弃端部整片
+refine_min_w_span: 0.05  # 最小截面高度 (米)
+
+# ========== 端部裁剪参数 ==========
+# 这些参数直接控制工字钢两端的裁剪程度，调大阈值 = 更宽松 = 保留更多端部
+trim_outlier_ratio:      1.8   # ISSUE-007: 1.3→1.8，端部截面与中间段差异合理范围更大
+trim_v_shift_threshold:  0.08  # ISSUE-007: 0.05→0.08，放宽v方向偏移容差（LiDAR噪声可达5cm）
+trim_w_shift_threshold:  0.12  # ISSUE-007: 0.08→0.12，放宽w方向偏移容差
+trim_aspect_diff_ratio:  0.5   # 截面长宽比偏差比例阈值 (调大→宽松)
+trim_density_ratio_high: 2.5   # 点密度上限倍率 (高于则异常，调大→宽松)
+trim_density_ratio_low:  0.15  # ISSUE-007: 0.25→0.15，端部密度天然低于中间段
+trim_score_ratio:        0.15  # ISSUE-007: 0.3→0.15，H型分数在端部可见性差时天然低
+
+# ========== 扩展参数 ==========
+extend_min_target_length: 3.5  # 扩展目标最小长度 (米)
+extend_max_overshoot:     1.0  # 扩展时每侧超出原始聚类端点的最大距离 (米)
+
+# ========== 机械臂物理参数 ==========
+d_base:        800  # 底座中心到腹板表面的水平距离 (mm)
+d_work:        650   # 喷枪物理长度 + 喷涂挂距 (mm)
+base_z_offset: 460   # 机械臂底座中心与腹板中心高度线的高度差 (mm)
+work_z_offset: -300   # 作业点Z方向偏移量 (mm)，负值=降低，正值=升高

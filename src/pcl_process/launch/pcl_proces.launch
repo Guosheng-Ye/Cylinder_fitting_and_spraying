@@ -1,7 +1,19 @@
 <launch>
-  <!-- 雷达处理节点 (对应 rosrun pcl_process rslidar_process_node) -->
-  <node pkg="pcl_process" type="rslidar_process_node" name="rslidar_process_node" output="screen"/>
+  <!-- 雷达处理节点 -->
+  <node pkg="pcl_process" type="rslidar_process_node_ros" name="rslidar_process_node" output="screen"/>
 
-  <!-- 圆柱拟合节点 (对应 rosrun pcl_process cylinder_fitting_node_ros) -->
-  <node pkg="pcl_process" type="cylinder_fitting_node_ros" name="cylinder_fitting_node" output="screen"/>
+  <!-- 圆柱拟合节点 -->
+  <node pkg="pcl_process" type="cylinder_fitting_node_ros" name="cylinder_fitting_node" output="screen">
+    <!-- 从YAML配置文件加载所有检测参数 -->
+    <rosparam file="$(find pcl_process)/config/cylinder_detection_params.yaml" command="load"/>
+  </node>
+
+  <!-- 工字钢检测节点 -->
+  <node pkg="pcl_process" type="ibeam_fitting_node_ros" name="ibeam_fitting_node" output="screen">
+    <!-- 输入话题: 使用±45度过滤的点云 -->
+    <param name="input_topic" value="/rslidar_filtered_ibeam"/>
+    <!-- 从YAML配置文件加载所有检测参数 -->
+    <rosparam file="$(find pcl_process)/config/ibeam_detection_params.yaml" command="load"/>
+  </node>
+
 </launch>
