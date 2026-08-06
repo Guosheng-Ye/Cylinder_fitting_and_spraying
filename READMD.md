@@ -2,7 +2,7 @@
 
 > 本文件按仓库要求命名为 **`READMD.md`**（不是 `README.md`）。
 >
-> 审阅基线：`dev` 分支，提交 `798df9a`，2026-08-06。文档以当前源码、CMake、launch、YAML、消息定义和辅助脚本为依据；`claude/CLAUDE.md`、`src/pcl_process/src/cal_logs/interface.md` 与部分部署脚本含有旧路径或旧接口，不能替代本文件。
+> 算法源码审阅基线：`dev` 分支，提交 `798df9a`，2026-08-06；其后的 `9b28f24` 是首次加入本说明文件的文档提交。本文以源码、CMake、launch、YAML、消息定义和辅助脚本为依据；`claude/CLAUDE.md`、`src/pcl_process/src/cal_logs/interface.md` 与部分部署脚本含有旧路径或旧接口，不能替代本文件。
 
 ## 目录
 
@@ -113,7 +113,7 @@ flowchart LR
 
 ```text
 .
-├── .vscode/                         # VS Code C++/CMake 配置，包含旧工作空间路径
+├── .vscode/                         # VS Code C++/CMake 配置，绑定另一个 ros_airy_work checkout
 ├── claude/CLAUDE.md                 # 历史开发说明，部分包和接口已经过时
 ├── src/
 │   ├── CMakeLists.txt               # 指向 ROS Noetic catkin toplevel.cmake 的绝对符号链接
@@ -160,8 +160,8 @@ flowchart LR
 ├── ibeam.sh                         # 本地编译并启动工字钢流水线；shebang 有误
 ├── pcl_process.sh                   # 启动占位程序；shebang 有误
 ├── show.sh                          # 启动硬编码 PCD Viewer；shebang 有误
-├── ros_cylinder.sh                  # 旧 ros_airy_work 路径的自启动脚本
-├── ros_cylinder.service             # 与旧路径绑定的 systemd 样例
+├── ros_cylinder.sh                  # 绑定 ros_airy_work checkout 的自启动脚本
+├── ros_cylinder.service             # 与该固定 checkout 绑定的 systemd 样例
 └── daily_todo.md                    # 历史开发记录
 ```
 
@@ -237,7 +237,7 @@ rosdep install --from-paths src/pcl_process --ignore-src -r -y
 - `main/CMakeLists.txt` 指定 `-std=c++11`；
 - 当前 C++ 源码使用了结构化绑定和指定初始化器等较新语法。
 
-本机 GCC 在 `-std=c++14` 下会把结构化绑定作为扩展接受并给出警告，但不同编译器/严格构建可能失败。建议统一改为 C++17，并完成一次目标机编译回归。
+本机 GCC 在非严格 `-std=c++14` 下会把这些语法作为扩展接受；加 `-pedantic-errors` 后，工字钢 `IBeamInputs{ .field = ... }` 指定初始化器会直接失败。结构化绑定至少要求 C++17，而标准指定初始化器要求 C++20。建议要么统一切换到 C++20 并完成目标机回归，要么把指定初始化器改成普通字段赋值后至少使用 C++17，不能只把标准改为 C++17 就认为已完全修复。
 
 ### 4.4 Python 离线工具依赖
 
@@ -449,8 +449,10 @@ rostopic echo /spray_info
 | `ibeam.sh` | 编译后启动工字钢流水线 | 同上；未显式 source `/opt/ros/noetic/setup.bash` |
 | `pcl_process.sh` | 编译并运行 `pcl_process` | 同上；运行的是无功能占位程序 |
 | `show.sh` | 启动 PCD Viewer | 同上；Viewer 内部 PCD 路径硬编码且通常不存在 |
-| `ros_cylinder.sh` | 开机拉起 roscore 和拟合 launch | 全部绑定旧目录 `/home/oneko/projects/ros_airy_work`；引用不存在的 `pcl_process.launch` |
-| `ros_cylinder.service` | systemd 用户图形服务 | 工作目录/ExecStart 为旧目录；`ExecStop` 使用宽泛的 `killall -9` |
+| `ros_cylinder.sh` | 开机拉起 roscore 和拟合 launch | 固定绑定 `/home/oneko/projects/ros_airy_work`；引用不存在的 `pcl_process.launch` |
+| `ros_cylinder.service` | systemd 用户图形服务 | 工作目录/ExecStart 固定为 `ros_airy_work` checkout；`ExecStop` 使用宽泛的 `killall -9` |
+
+审阅时 `/home/oneko/projects/ros_airy_work` 实际存在，仍位于算法源码基线提交 `798df9a`；其 `devel/lib/pcl_process/` 中也存在 7 个历史构建产物。因此这里的问题是**固定 checkout 耦合和错误 launch 拼写**，不能简单理解为目录必然不存在。当前系统 ROS 环境仍不完整：仅 source 该 checkout 的 `devel/setup.bash` 不会恢复缺失的 `roslaunch`/`catkin_make`。
 
 推荐在修复前使用本文件中的显式 `source` + `roslaunch` 命令，不要直接部署现有 systemd 服务。
 
@@ -557,10 +559,10 @@ Latched 的逐切片话题只会为新订阅者保留**最后一条切片**，�
 
 - `circle_center`（`float64[3]`）：该高度层的圆轴中心，基座 O 坐标系、mm；
 - `spray_center`（`float64[3]`）：弧面切片中心，基座 O 坐标系、mm；
-- `cylinder_axis_direction`（`float64[3]`）：单位轴向量；
+- `cylinder_axis_direction`（`float64[3]`）：`axisUsed()` 的单位轴向量；发布端未显式做方向变换，但当前硬编码 `R_OB=I`，所以数值也适用于基座 O；若未来改变雷达安装旋转，必须同步补上向量旋转；
 - `radius`：圆柱半径，mm；
 - `angle`：该切片角宽，degree；
-- `height`：该切片实际高度，mm；
+- `height`：直接发布 `fitting_params.height_`，即规划输入/配置中的目标片高，mm；不是按模型高度重新均分后的实际 `height_mm / num_height_slices`；
 - `id`：有效层过滤后重新生成的 1-based S 形顺序编号。
 
 ### 9.4 `IBeamTargetInfo.msg`
@@ -592,10 +594,12 @@ a*x_m + b*y_m + c*z_m + d = 0
 
 - `targets`（`TargetPose[]`）：完整有序工作点数组。
 
+该 `.msg` 文件的注释提到通过 `/achieve_goal false→true` 清空下游行为树缓存，但当前仓库没有订阅或发布 `/achieve_goal`；本仓库两个拟合节点的实际门控话题是 `/achieve_work_pose`。因此 `/achieve_goal` 只能视为仓库外下游约定，不能拿它触发本项目重新拟合。
+
 `SprayInfo.msg`：
 
 - `num`：`int16` 切片数量；
-- `area`：名义喷涂面积，mm²。
+- `area`：名义喷涂面积，**m²**；两个发布端都把内部毫米面积除以 `1e6` 后写入。
 
 ---
 
@@ -640,7 +644,7 @@ R_OB = I
 雷达点到基座 C：p_C = p_B + (0, 190, -320) mm
 ```
 
-两个拟合 ROS 包装当前都调用 `to_base_from_lidar()` 发布点位，没有调用 `to_robot_from_lidar()`；因此输出点位属于**基座 O**，不是小机械臂 C。当前代码也没有订阅 `/tf`、使用 `tf2` 或提供运行时标定参数。换传感器、移动安装位置或改变轴向约定时，必须修改并重新编译该头文件。
+两个拟合 ROS 包装当前都调用 `to_base_from_lidar()` 发布点位，没有调用 `to_robot_from_lidar()`；因此输出点位属于**基座 O**，不是小机械臂 C。当前实现令雷达 B 与基座 O 坐标轴对齐（`R_OB=I`），所以 `to_base_from_lidar()` 实际只加平移；工字钢仍通过“两点之差”显式生成基座系 `plane_rx`，圆柱则直接复制 `axisUsed()`，依赖这个恒等旋转假设。当前代码没有订阅 `/tf`、使用 `tf2` 或提供运行时标定参数。换传感器、移动安装位置或改变轴向约定时，必须修改并重新编译该头文件及复核方向向量发布。
 
 7 个自定义消息都没有 `std_msgs/Header`，所以消息本身不携带 `frame_id` 或采样时间；“基座 O”只是当前代码约定，消费者无法从消息自证坐标系，也不能直接按时间戳与传感器数据同步。
 
@@ -648,7 +652,7 @@ R_OB = I
 
 ## 11. 雷达点云预处理
 
-`RSLidarFilterNode` 订阅 `PointXYZI` 点云，遍历所有有限点并生成两份输出：
+`RSLidarFilterNode` 订阅 `PointXYZI` 点云，遍历所有点；它会跳过任一坐标为 NaN 的点，但没有用 `std::isfinite()` 显式过滤正负无穷值。随后生成两份输出：
 
 ```cpp
 angle = atan2(point.x, point.y)
@@ -679,7 +683,7 @@ point.y > 0
 5. 在模型参数限制内提取圆柱内点；
 6. 计算拟合圆柱的中心、轴、半径、高度和底部中心；
 7. 校验内点数、内点比例、半径、径向标准差、径向极差、长宽比、圆度和轴向；
-8. 把雷达系模型转换到机械臂基座系；
+8. 在雷达系模型上进行规划；ROS 发布包装层把点坐标转换到基座 O，圆柱轴向量则依赖当前 `R_OB=I` 的安装假设直接复用；
 9. 手动或自动计算可覆盖角、切片角和搭接率；
 10. 对固定 **180° 半圆弧**按高度与弧长重分片；
 11. 按配置从上到下或从下到上，以 S 形生成切片和工作点；
@@ -714,7 +718,7 @@ cos(alpha) = (R_task² + D² - R_eff²) / (2*R_task*D)
 max_coverage_angle = 2*alpha
 ```
 
-随后根据喷幅、初始搭接率、半径和表面偏移优化切片角与切片数。不可达、分母为零或高度超臂展时拒绝规划。当前自动规划还把虚拟坐标中的工作高度中心固定为 `z_center_mm=400`，源码已标注 TODO；它不是从实际模型中心动态推导。
+随后根据喷幅、初始搭接率、半径和表面偏移优化切片角与切片数。`execute_slice_planning()` 在不可达、分母为零或高度超臂展时会返回失败状态和非正切片角，**但调用者并不会因此拒绝整次任务**：`run_with_rslidar()` 会进入 `AUTO MODE FALLBACK`，以 `k=1` 和输入喷幅/搭接率调用手动切片计算，然后仍按 180° 生成目标。因而当前可达性计算只是自动优化条件，不是 fail-closed 安全门。当前自动规划还把虚拟坐标中的工作高度中心固定为 `z_center_mm=400`，源码已标注 TODO；它不是从实际模型中心动态推导。
 
 ### 12.5 手动模式
 
@@ -737,7 +741,7 @@ slice_width = w0 * k
 - `slice_start_from_top=true` 时从最高层开始，否则从最低层开始；
 - 表面切片中心沿法向外移 `distance`，得到机械臂工作点。
 
-`SprayInfo.area` 使用名义 `slice_width × requested_height × num`，不一定等于按重新均分后的精确几何面积。
+圆柱 `SprayInfo.area` 使用 `slice_width_mm × requested_height_mm / 1e6 × 有效发布切片数`，单位为 m²；它不一定等于按重新均分后的精确几何面积。
 
 ### 12.7 默认规划输入
 
@@ -794,7 +798,7 @@ slice_width = w0 * k
 
 `min_center_xy_dist_m` 和 `slice_start_from_top` 只在 YAML/预设路径中存在，不在 `CylinderDetection.cfg` 的 rqt 面板中。
 
-`preset_D` 的 `min_height_m=0.08`、`ransac_max_iterations=150000`、`max_radial_range_ratio=1.8` 超出动态重配置文件分别定义的最小/最大范围 `0.1`、`100000`、`1.0`。预设经 dynamic_reconfigure 同步时可能被钳位，必须通过运行日志或 `rosparam get` 核对有效值。
+`preset_D` 的 `min_height_m=0.08`、`ransac_max_iterations=150000`、`max_radial_range_ratio=1.8` 超出动态重配置文件分别定义的最小/最大范围 `0.1`、`100000`、`1.0`。当前 `switchPreset()` 调用 `Server::updateConfig()` 后又直接 `applyFittingParams()`；ROS Noetic 的 `updateConfig()` 本身不执行 `__clamp__()`，所以切换预设时这些原始值仍会进入算法。通过 rqt/`set_parameters` 提交的配置请求则会先执行 `__clamp__()`，因此一次人工调整可能把它们压回 cfg 范围并改变检测行为。必须通过运行日志或 `rosparam get` 核对当前有效值。
 
 ---
 
@@ -884,10 +888,10 @@ adjusted_slice_length = 识别总长 / n
 工字钢 `SprayInfo.area` 计算：
 
 ```text
-切片数 × 切片长度 × 腹板高度
+切片数 × 切片长度_mm × 腹板高度_mm / 1e6
 ```
 
-它是正面矩形投影面积，不包含两侧翼缘的全部展开表面积。
+结果单位是 m²。它是正面矩形投影面积，不包含两侧翼缘的全部展开表面积。
 
 ### 13.8 启动参数
 
@@ -1021,8 +1025,10 @@ rosrun rqt_reconfigure rqt_reconfigure
 | `cal.py` | 圆柱与机械臂覆盖角 3D 几何可视化 | NumPy、Matplotlib | 参数和样例数据写在脚本中 |
 | `statics.py` | 解析圆柱日志、汇总输出并画 3D 覆盖图 | NumPy、Matplotlib | 日志格式与 C++ ROS_INFO 文本耦合 |
 | `imeam_detector.py` | 工字钢 Python 原型：PCD/bag、聚类、截面和 3D 可视化 | Open3D、NumPy、rosbags、Plotly 可选 | 文件名保留了 `imeam` 拼写；默认绝对路径过时 |
-| `output_verify.py` | 解析工字钢/切片日志，检查切片、平面和工作点 | NumPy、Matplotlib | 需要当前日志格式；不是自动单元测试 |
-| `length.py` | 单一几何公式演算样例 | Python 标准库 | 参数硬编码 |
+| `output_verify.py` | 解析工字钢/切片日志，检查切片、平面和工作点 | NumPy、Matplotlib | 必须包含逐切片 `Published target info for slice_id ...` 日志；不是自动单元测试 |
+| `length.py` | 单一几何公式演算样例 | Python 标准库 | 参数硬编码；`d_base=1100 mm` 与标准 launch YAML 的 800 mm 不同 |
+
+审阅时实际运行 `length.py` 得到 `1566.78 mm`；若只把同一公式的 `d_base` 改为运行配置中的 800 mm，结果为 `1781.80 mm`。因此该脚本只能作为公式样例，不能当作当前 launch 参数的预期输出。
 
 ### 16.2 ROS bag 转 PCD
 
@@ -1067,13 +1073,15 @@ python src/pcl_process/src/cal_logs/statics.py \
 
 ```bash
 python src/pcl_process/src/ibeam_fitting/output_verify.py \
-  --file src/pcl_process/src/ibeam_fitting/log.txt \
+  --file /path/to/full_ibeam_run.log \
   --no-3d
 
 # 或从标准输入解析，并把 3D 图保存为文件
 some_log_command | python src/pcl_process/src/ibeam_fitting/output_verify.py \
   --stdin --save /tmp/ibeam_verify.png
 ```
+
+仓库自带的 `src/pcl_process/src/ibeam_fitting/log.txt` 只有本体尺寸、工作长度等汇总行，没有逐切片 `Published target info ...` 行；当前解析器对它只能提取部分汇总字段，随后会因没有 `surface_points` 而退出，不能直接作为上面命令的完整验证输入。
 
 ### 16.5 样例数据
 
@@ -1082,7 +1090,7 @@ some_log_command | python src/pcl_process/src/ibeam_fitting/output_verify.py \
 - `cal_logs/12-22/cap_1.png`：PCL 圆柱拟合窗口与 Matplotlib 机械臂覆盖范围的并排截图；
 - `cal_logs/test_ims/virtual_dis_800.png`：虚拟距离 800 mm 的覆盖角示意，图中约 133.36°；
 - `cal_logs/test_ims/virtual_dis_1100.png`：虚拟距离 1100 mm 的覆盖角示意，图中约 112.45°；
-- `ibeam_fitting/log.txt`：工字钢检测和切片输出样例。
+- `ibeam_fitting/log.txt`：工字钢本体尺寸与工作长度汇总样例，不含逐切片目标日志。
 
 历史文档还引用未跟踪的 `ros_bag/`、`cal_logs/3-5/`、`cal_logs/3-10/` 等现场数据；这些目录受 `.gitignore` 或未包含在当前仓库中。
 
@@ -1125,9 +1133,14 @@ for p in Path('src/pcl_process/config').glob('*.yaml'):
     print('OK', p)
 PY
 
-# Shell 语法（不会发现错误 shebang 或旧绝对路径）
+# Shell 语法（不会发现错误 shebang、固定 checkout 或错误 launch 名）
 bash -n ./*.sh
+
+# systemd 单元语法（不会验证 ExecStart 的业务行为）
+systemd-analyze verify ./ros_cylinder.service
 ```
+
+审阅时以上 Python/CFG、XML、YAML、Shell 检查均通过，`systemd-analyze verify` 也返回 0；这只证明静态格式可接受，不代表当前服务中的固定路径、`killall -9` 或缺失 launch 名称可安全运行。
 
 ### 17.2 ROS 构建验证
 
@@ -1207,7 +1220,7 @@ rostopic hz /rslidar_filtered_cylinder
 - 查看 ROI 距离/高度是否截断目标；
 - 记录算法的拒绝原因日志；
 - A/D 是否使用了正确 preset；
-- D 模式确认动态重配置钳位后的实际值；
+- D 模式确认预设切换后的实际值；若操作过 rqt，再检查值是否被 cfg 范围钳位；
 - 工字钢检查墙面是否误删、分层是否造成断裂、严格/宽松合并是否通过。
 
 ### 18.5 圆柱成功一次后不再处理
@@ -1220,7 +1233,7 @@ rostopic hz /rslidar_filtered_cylinder
 
 ### 18.7 新订阅者只看到最后一个切片
 
-逐切片话题是 latched 且队列为 1。读取完整 `/target_pose_list`，或修改协议为包含数组/批次 ID 的消息。
+逐切片话题是 latched；圆柱发布队列为 1，工字钢为 10，但 latch 对每个发布者都只缓存最后一条消息。读取完整 `/target_pose_list`，或修改协议为包含数组/批次 ID 的消息。
 
 ### 18.8 PCL/VTK 窗口启动失败
 
@@ -1263,9 +1276,9 @@ rostopic info /target_pose_list
 10. **工字钢只规划第一个结果**：多梁场景会丢弃后续结果。
 11. **面积是名义投影面积**：不是严格的曲面/翼缘展开面积。
 12. **圆柱只规划 180°**：不是 360° 全周喷涂。
-13. **preset_D 与动态范围冲突**：部分 YAML 值可能被钳位，`issues.md` 也仍记录 D 检测问题。
+13. **preset_D 与动态范围冲突**：程序化 `updateConfig()` 不钳位，但 rqt 服务请求会钳位，同一预设可能因是否操作过面板而产生不同有效参数；`issues.md` 也仍记录 D 检测问题。
 14. **C++ 标准声明落后于源码语法**：依赖编译器扩展。
-15. **部署脚本不可直接用于当前目录**：旧路径、错误 launch 名、错误 shebang、宽泛 `killall -9`。
+15. **部署脚本不可直接用于当前目录**：固定绑定另一个 checkout、错误 launch 名、错误 shebang、宽泛 `killall -9`。
 16. **PCD Viewer 硬编码旧 PCD 路径**：不是通用命令行工具。
 17. **Python 依赖未锁定**：不能保证不同机器复现相同离线结果。
 18. **`main` 包和 `pcl_process` 主程序是占位内容**：不要把它们当成系统总入口。
@@ -1273,6 +1286,8 @@ rostopic info /target_pose_list
 20. **无自动回归门禁**：参数改动主要靠现场日志和人工可视化验收。
 21. **目标消息没有 Header/frame_id/stamp**：坐标系和批次时间只能靠外部约定，存在误用与同步风险。
 22. **Catkin 库导出/安装元数据不一致**：存在不存在的 `tests` 导出、遗漏工字钢库、未安装库和头文件等问题。
+23. **圆柱自动可达性不是安全门**：几何规划失败时会回退到 `k=1` 的手动切片逻辑并继续发布，可能生成机械臂实际不可达的目标。
+24. **圆柱轴向发布隐含 `R_OB=I` 假设**：当前数值正确，但发布端没有显式旋转 `cylinder_axis_direction`；未来调整雷达安装旋转时容易出现点已转换而方向未转换的问题。
 
 详见 `src/pcl_process/issues.md`。其中 ISSUE-001（细圆柱 N=2 换位冗余）和 ISSUE-003（preset_D 检测失败）仍标记待修复；其他记录可能与 `daily_todo.md` 状态不一致，应以复现和测试更新为准。
 
@@ -1287,7 +1302,7 @@ rostopic info /target_pose_list
 3. 分离圆柱/工字钢输出话题，或新增统一批次消息含 `work_object`、`batch_id` 和完整切片数组；
 4. 统一触发协议：单次请求/响应或持续流二选一；
 5. 修复参数去重漏字段和消息单位注释；
-6. 将 CMake C++ 标准升级到 17；
+6. 将 CMake C++ 标准升级到 20，或先消除指定初始化器后至少升级到 17；
 7. 将根目录脚本改为当前路径、正确 shebang 和可控的进程管理；
 8. 为 Python 工具增加 `requirements.txt`/锁文件和统一 CLI；
 9. 把典型 bag/PCD 的期望结果转成离线单元测试；
@@ -1326,7 +1341,7 @@ rosmsg show pcl_process/TargetPoseList
 - [ ] 单位和 frame_id 经上下游确认；
 - [ ] 共享话题冲突已处理；
 - [ ] headless/图形会话启动方式已确定；
-- [ ] systemd 服务不再使用旧路径和 `killall -9`；
+- [ ] systemd 服务不再固定耦合另一个 checkout，也不使用 `killall -9`；
 - [ ] 参数和 Python 依赖已固化；
 - [ ] `package.xml` 维护者信息已更新；
 - [ ] `issues.md` 的待修复项已复测。
