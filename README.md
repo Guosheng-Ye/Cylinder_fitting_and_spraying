@@ -58,29 +58,29 @@
 
 ```mermaid
 flowchart LR
-    L[前臂雷达<br/>/front_arm_lidar] --> F[rslidar_process_node_ros]
-    F -->|+Y 前向 ±40°| PC[/rslidar_filtered_cylinder]
-    F -->|+Y 前向 ±50°| PI[/rslidar_filtered_ibeam]
+    L["前臂雷达<br/>/front_arm_lidar"] --> F["rslidar_process_node_ros"]
+    F -->|"+Y 前向 ±40°"| PC["/rslidar_filtered_cylinder"]
+    F -->|"+Y 前向 ±50°"| PI["/rslidar_filtered_ibeam"]
 
-    WO[/work_object] --> CY[cylinder_fitting_node_ros]
-    GO[/achieve_work_pose] --> CY
-    PP[/process_param_bridge] --> CY
+    WO["/work_object"] --> CY["cylinder_fitting_node_ros"]
+    GO["/achieve_work_pose"] --> CY
+    PP["/process_param_bridge"] --> CY
     PC --> CY
 
-    WO --> IB[ibeam_fitting_node_ros]
+    WO --> IB["ibeam_fitting_node_ros"]
     GO --> IB
-    IP[/ibeam_process_param_bridge] --> IB
+    IP["/ibeam_process_param_bridge"] --> IB
     PI --> IB
 
-    CY --> TI[/target_info]
-    CY --> TPL[/target_pose_list]
-    CY --> SI[/spray_info]
-    CY --> PO[/process_param]
+    CY --> TI["/target_info"]
+    CY --> TPL["/target_pose_list"]
+    CY --> SI["/spray_info"]
+    CY --> PO["/process_param"]
 
-    IB --> ITI[/ibeam_target_info]
+    IB --> ITI["/ibeam_target_info"]
     IB --> TPL
     IB --> SI
-    IB --> IPO[/ibeam_process_param]
+    IB --> IPO["/ibeam_process_param"]
 ```
 
 ### 2.1 关键行为差异
