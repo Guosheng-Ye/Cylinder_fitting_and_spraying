@@ -2158,7 +2158,7 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
             continue;
         }
 
-        // 扩展长度上限：基于原始聚类长度 ×1.5 或 target_length 取大
+        // 扩展长度上限：基于原始聚类长度 ×1.3 或 target_length 取大
         {
             double orig_cluster_length = beam.original_dimensions[0];
             double max_allowed = std::max(orig_cluster_length * 1.3,
@@ -2298,31 +2298,26 @@ void IBeamFitter::extendShortIBeams(std::vector<IBeamResult>                  &i
                         distribution_abnormal = mid_v_frac > 0.35;
                     }
 
-                    // 圆柱特征：密度高 AND 分布均匀（两者缺一不可）
-                    bool cylinder_like = density_abnormal && distribution_abnormal;
                     // 端部稀疏：点数远低于典型密度，说明无工字钢结构
                     bool sparse_abnormal = typ_density > 0 && cnt < typ_density * 0.4;
-                    // 分布严重异常（mid_v_frac > 0.5）独立触发裁剪（圆柱明显特征）
-                    bool strong_distribution = mid_v_frac > 0.5;
                     
                     // 分级尺寸判定：
                     // 1. 严重尺寸异常(gross_size_abnormal): 尺寸极大(>1.6倍)，直接认为是端板/连接件 -> 裁剪
                     // 2. 轻微尺寸异常(size_abnormal): 尺寸稍大(1.25~1.6倍)，需配合密度异常才裁剪 -> 防止误切噪声
                     bool gross_size_abnormal = (v_max_s - v_min_s) > v_gross_thresh || (w_max_s - w_min_s) > w_gross_thresh;
                     
-                    bool abnormal = cylinder_like || gross_size_abnormal 
-                                    || (size_abnormal && density_abnormal) // 恢复：轻微尺寸异常需配合密度异常
-                                    || sparse_abnormal || strong_distribution
-                                    || distribution_abnormal;
+                    bool abnormal = gross_size_abnormal
+                                    || (size_abnormal && density_abnormal) // 轻微尺寸异常需配合密度异常，防误切噪声
+                                    || sparse_abnormal
+                                    || distribution_abnormal; // mid_v_frac > 0.35 单项已覆盖原 cylinder_like / strong_distribution
                     if (abnormal) {
                         std::cout << "    扩展端部裁剪: " << side << "切片#" << s
                                   << " 异常 (cnt=" << cnt << "/" << typ_density
                                   << ", mid_v=" << mid_v_frac;
                         if (size_abnormal) std::cout << ", 尺寸";
                         if (density_abnormal) std::cout << ", 密度过高";
-                        if (distribution_abnormal) std::cout << ", 分布";
+                        if (distribution_abnormal) std::cout << ", 分布" << (mid_v_frac > 0.5 ? "(强)" : "");
                         if (sparse_abnormal) std::cout << ", 密度过低";
-                        if (strong_distribution) std::cout << ", 强分布异常";
                         std::cout << ")" << std::endl;
                     }
                     return abnormal;
